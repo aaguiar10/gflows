@@ -1,0 +1,11 @@
+flask
+pandas
+yfinance
+plotly
+dash
+Flask-Caching
+scipy
+dash-bootstrap-components
+gunicorn
+apscheduler
+requests
