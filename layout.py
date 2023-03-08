@@ -181,9 +181,15 @@ def serve_layout():
                     hidden=True,
                 )
             ),
-            dbc.Row(
-                dcc.Graph(id="live-chart", responsive=True),
-                class_name="vw-100 vh-100 mt-0",
+            dcc.Loading(
+                id="loading-icon",
+                children=[
+                    dbc.Row(
+                        dcc.Graph(id="live-chart", responsive=True),
+                        class_name="vw-100 vh-100 mt-0",
+                    )
+                ],
+                type="default",
             ),
             dbc.Row(
                 dbc.Accordion(

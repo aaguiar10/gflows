@@ -183,17 +183,20 @@ def update_live_chart(value, stock, expiration, is_iv):
     ) = query_data(stock, expiration)
     stock = stock.upper()
     if df is None:
-        return go.Figure(
-            {
-                "data": [],
-                "layout": {
-                    "title": {
-                        "text": stock + " data unavailable, retry later",
-                        "x": 0.5,
-                        "font": {"size": 13},
-                    }
-                },
-            }
+        return (
+            go.Figure(
+                {
+                    "data": [],
+                    "layout": {
+                        "title": {
+                            "text": stock + " data unavailable, retry later",
+                            "x": 0.5,
+                            "font": {"size": 13},
+                        }
+                    },
+                }
+            ),
+            True,
         )
     dcc.Store(id="data-time", data=data_time, storage_type="memory")
     dfAgg = df.groupby(["StrikePrice"]).sum(numeric_only=True)
@@ -344,7 +347,7 @@ def update_live_chart(value, stock, expiration, is_iv):
                 if min_n[0] < 0:
                     fig.add_hrect(
                         y0=0,
-                        y1=min_n[0] * 2.75,
+                        y1=min_n[0] * 1.5,
                         fillcolor="red",
                         opacity=0.1,
                         line_width=0,
@@ -352,7 +355,7 @@ def update_live_chart(value, stock, expiration, is_iv):
                 if max_n[2] > 0:
                     fig.add_hrect(
                         y0=0,
-                        y1=max_n[2] * 2.75,
+                        y1=max_n[2] * 1.5,
                         fillcolor="green",
                         opacity=0.1,
                         line_width=0,
@@ -408,18 +411,20 @@ def update_live_chart(value, stock, expiration, is_iv):
             fig.add_trace(
                 go.Scatter(
                     x=strikes,
-                    y=call_ivs * 100,
-                    name="Call IV",
+                    y=put_ivs * 100,
+                    name="Put IV",
                     fill="tozeroy",
+                    line_color="indianred",
                 )
             )
+
             fig.add_trace(
                 go.Scatter(
                     x=strikes,
-                    y=put_ivs * 100,
-                    name="Put IV",
-                    fill="tonexty",
-                    line_color="indianred",
+                    y=call_ivs * 100,
+                    name="Call IV",
+                    fill="tozeroy",
+                    line_color="#32A3A3",
                 )
             )
             split_title = textwrap.wrap(stock + " IV Profile, " + data_time, width=50)

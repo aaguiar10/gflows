@@ -85,11 +85,8 @@ def getOptionsData(ticker, expir):
     # Get Spot
     spotLine = optionsFileData[1]
     spotPrice = float(spotLine.split("Last:")[1].split(",")[0])
-    if ticker == "ndx":
-        fromStrike = 0.7 * spotPrice
-    else:
-        fromStrike = 0.8 * spotPrice
-    toStrike = 1.2 * spotPrice
+    fromStrike = 0.5 * spotPrice
+    toStrike = 1.5 * spotPrice
     # Get Today's Date
     dateLine = optionsFileData[2]
     todayDate = dateLine.split("Date: ")[1].split(",")
@@ -256,7 +253,7 @@ def getOptionsData(ticker, expir):
     call_ivs_exp = dfAgg_exp_mean["CallIV"]
     put_ivs_exp = dfAgg_exp_mean["PutIV"]
     # ---=== CALCULATE EXPOSURE PROFILES ===---
-    levels = np.linspace(fromStrike, toStrike, 60)
+    levels = np.linspace(fromStrike, toStrike, 180)
     nextExpiry = df["ExpirationDate"].min()
 
     df["IsThirdFriday"] = [isThirdFriday(x) for x in df.ExpirationDate]
