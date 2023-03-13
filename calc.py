@@ -90,7 +90,12 @@ def getOptionsData(ticker, expir):
     # Get Today's Date
     dateLine = optionsFileData[2]
     todayDate = dateLine.split("Date: ")[1].split(",")
-    retrieved_ampm = todayDate[1].split("at")[1].split("EST")
+    timezone = ""
+    if "EST" in todayDate[1]:
+        retrieved_ampm = todayDate[1].split("at")[1].split("EST")
+    else:
+        retrieved_ampm = todayDate[1].split("at")[1].split("EDT")
+    timezone = " ET "
     am_pm = "%I:%M %p"
     data_time = (
         datetime.strptime(todayDate[0], "%B %d").strftime("%b %d")
@@ -100,7 +105,7 @@ def getOptionsData(ticker, expir):
         + (
             datetime.strptime(retrieved_ampm[0].strip(), am_pm) - timedelta(minutes=15)
         ).strftime("%-I:%M %p")
-        + " EST "
+        + timezone
         + "(15min delay)"
     )
     monthDay = todayDate[0].split(" ")

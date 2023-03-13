@@ -37,7 +37,7 @@ def serve_layout():
                             influence option prices. ",
                                 html.Br(),
                                 html.Span(
-                                    "Monday-Friday: 30-minute updates from 9:30am-4:30pm EST (CBOE delayed data)",
+                                    "Monday-Friday: 30-minute updates from 9:30am-4:30pm ET (CBOE delayed data)",
                                     className="fst-italic",
                                 ),
                             ]
