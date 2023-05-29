@@ -1,16 +1,5 @@
 from dash import html, dcc
 import dash_bootstrap_components as dbc
-from datetime import datetime, timedelta
-
-
-def monthly_exp():
-    currdate = datetime.now()
-    # if weekend, use friday's month/year for expiration
-    if currdate.weekday() == 5:
-        currdate = currdate - timedelta(1)
-    elif currdate.weekday() == 6:
-        currdate = currdate - timedelta(2)
-    return str(currdate.year) + " " + currdate.strftime("%B")
 
 
 def serve_layout():
@@ -84,13 +73,36 @@ def serve_layout():
                             html.Div(html.H4("Expirations"), className="mx-auto"),
                             dbc.ButtonGroup(
                                 children=[
-                                    dbc.Button(
-                                        monthly_exp(),
-                                        id="monthly-btn",
-                                        color="primary",
-                                        active=True,
-                                        outline=True,
-                                        n_clicks=0,
+                                    html.Div(
+                                        dcc.Dropdown(
+                                            options=[
+                                                {
+                                                    "label": html.Div(
+                                                        className="line-1-horizontal"
+                                                    ),
+                                                    "value": "monthly-btn",
+                                                },
+                                                {
+                                                    "label": html.Div(
+                                                        className="line-1-horizontal"
+                                                    ),
+                                                    "value": "0dte-btn",
+                                                },
+                                                {
+                                                    "label": html.Div(
+                                                        className="line-1-horizontal"
+                                                    ),
+                                                    "value": "opex-btn",
+                                                },
+                                            ],
+                                            id="monthly-options",
+                                            value="monthly-btn",
+                                            placeholder="Monthly",
+                                            searchable=False,
+                                            clearable=False,
+                                            className="d-flex h-100 border border-primary align-items-center",
+                                        ),
+                                        className="w-50",
                                     ),
                                     dbc.Button(
                                         "All",

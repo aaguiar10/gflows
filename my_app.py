@@ -1,4 +1,4 @@
-from dash import Dash, dcc, Input, Output, ctx
+from dash import Dash, dcc, Input, Output, ctx, no_update
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output
 import plotly.graph_objects as go
@@ -27,7 +27,7 @@ cache = Cache(
     config={
         "CACHE_TYPE": "FileSystemCache",
         "CACHE_DIR": "cache",
-        "CACHE_THRESHOLD": 80,
+        "CACHE_THRESHOLD": 150,
     },
 )
 
@@ -51,7 +51,7 @@ def query_data(ticker, expir):
     # Retrieve stored CBOE data of specified ticker & expiry
     result = getOptionsData(ticker, expir)
     if result == None:
-        return (None,) * 27
+        return (None,) * 28
     return result
 
 
@@ -60,20 +60,32 @@ app.layout = serve_layout
 
 @app.callback(  # handle selected expiration
     Output("exp-button-timestamp", "children"),
-    Output("monthly-btn", "active"),
     Output("all-btn", "active"),
-    Input("monthly-btn", "n_clicks"),
+    Output("monthly-options", "value"),
+    Input("monthly-options", "value"),
     Input("all-btn", "n_clicks"),
 )
-def on_click(btn1, btn2):
-    expir = "monthly"
-    is_active1 = True
-    is_active2 = False
+def on_click(value, btn):
+    expir = no_update
+    is_all_active = no_update
+    current_val = no_update
     if "all-btn" == ctx.triggered_id:
         expir = "all"
-        is_active1 = False
-        is_active2 = True
-    return expir, is_active1, is_active2
+        is_all_active = True
+        current_val = ""
+    elif "monthly-btn" == value:
+        expir = "monthly"
+        is_all_active = False
+        current_val = "monthly-btn"
+    elif "0dte-btn" == value:
+        expir = "0dte"
+        is_all_active = False
+        current_val = "0dte-btn"
+    elif "opex-btn" == value:
+        expir = "opex"
+        is_all_active = False
+        current_val = "opex-btn"
+    return expir, is_all_active, current_val
 
 
 @app.callback(  # handle selected option greek
@@ -146,6 +158,7 @@ def on_click(btn1, btn2, btn3, btn4):
 @app.callback(  # handle chart display based on inputs
     Output("live-chart", "figure"),
     Output("pagination-div", "hidden"),
+    Output("monthly-options", "options"),
     Input("live-dropdown", "value"),
     Input("tabs", "active_tab"),
     Input("exp-button-timestamp", "children"),
@@ -156,6 +169,7 @@ def update_live_chart(value, stock, expiration, is_iv):
         df,
         data_time,
         todaydate,
+        monthly_options_dates,
         strikes,
         exp_dates,
         spotprice,
@@ -197,6 +211,7 @@ def update_live_chart(value, stock, expiration, is_iv):
                 }
             ),
             True,
+            no_update,
         )
     dcc.Store(id="data-time", data=data_time, storage_type="memory")
     dfAgg = df.groupby(["StrikePrice"]).sum(numeric_only=True)
@@ -332,15 +347,17 @@ def update_live_chart(value, stock, expiration, is_iv):
             fig.add_trace(go.Scatter(x=levels, y=ex_fri, name="Next Monthly Expiry"))
             # show - &/or + areas of exposure depending on condition
             if name == "Charm" or name == "Vanna":
+                all_ex_min = all_ex.min()
+                all_ex_max = all_ex.max()
                 min_n = [
-                    all_ex.min(),
-                    ex_fri.min(),
-                    ex_next.min(),
+                    all_ex_min,
+                    ex_fri.min() if ex_fri.size != 0 else all_ex_min,
+                    ex_next.min() if ex_next.size != 0 else all_ex_min,
                 ]
                 max_n = [
-                    all_ex.max(),
-                    ex_fri.max(),
-                    ex_next.max(),
+                    all_ex_max,
+                    ex_fri.max() if ex_fri.size != 0 else all_ex_max,
+                    ex_next.max() if ex_next.size != 0 else all_ex_max,
                 ]
                 min_n.sort()
                 max_n.sort()
@@ -475,7 +492,10 @@ def update_live_chart(value, stock, expiration, is_iv):
             range=(
                 [from_strike, to_strike]
                 if not value.count("By Date")
-                else [exp_dates.min(), exp_dates.max()]
+                else [
+                    exp_dates.min() if exp_dates.size != 0 else todaydate,
+                    exp_dates.max() if exp_dates.size != 0 else todaydate,
+                ]
             ),
         ),
     )
@@ -496,10 +516,31 @@ def update_live_chart(value, stock, expiration, is_iv):
             annotation_text="Last: " + str("{:,.0f}".format(spotprice)),
             annotation_position="top",
         )
+
     pagination_hidden = True
     if value.count("Profile") and name == "Vanna":
         pagination_hidden = False
-    return fig, pagination_hidden
+
+    # provide monthly option labels
+    if len(monthly_options_dates) != 0:
+        monthly_options = [
+            {
+                "label": monthly_options_dates[0].strftime("%Y %B"),
+                "value": "monthly-btn",
+            },
+            {
+                "label": monthly_options_dates[1].strftime("%Y %B %d"),
+                "value": "0dte-btn",
+            },
+            {
+                "label": monthly_options_dates[2].strftime("%Y %B %d") + " (OPEX)",
+                "value": "opex-btn",
+            },
+        ]
+    else:
+        monthly_options = no_update
+
+    return fig, pagination_hidden, monthly_options
 
 
 if __name__ == "__main__":

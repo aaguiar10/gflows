@@ -1,0 +1,99 @@
+#monthly-options {
+    height: 100%;
+    text-align: center;
+}
+
+#monthly-options .Select .Select-control {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: #2c3e50;
+    border-top-left-radius: 0.125rem;
+    border-bottom-left-radius: 0.125rem;
+}
+
+#monthly-options .Select {
+    border-top-left-radius: 0.25rem;
+    border-bottom-left-radius: 0.25rem;
+}
+
+#monthly-options .Select-value-label {
+    color: #ffffff;
+}
+#monthly-options .is-open .Select-arrow {
+    border-color: transparent transparent #e0e0e0;
+}
+
+#monthly-options .Select-arrow {
+    border-color: #e0e0e0 transparent transparent;
+}
+
+#monthly-options .is-open .Select-arrow:hover {
+    border-color: transparent transparent #e0e0e0;
+}
+#monthly-options .Select-arrow:hover {
+    border-color: #c7c7c7 transparent transparent;
+}
+
+#monthly-options .Select-menu-outer {
+    border: 1px solid;
+}
+
+#monthly-options .Select-placeholder {
+    background: #ffffff;
+    color: #2c3e50;
+    border-top-left-radius: 0.1875rem;
+    border-bottom-left-radius: 0.1875rem;
+}
+
+#live-dropdown {
+    text-align: center;
+}
+
+.VirtualizedSelectOption {
+    display: flex !important;
+    justify-content: center !important;
+    color: #2c3e50;
+}
+
+.line-1-horizontal {
+    --size: 1rem;
+    --stroke-width: calc(var(--size) / 6);
+    --color: currentColor;
+    --animation-timing-function: cubic-bezier(0.85, 0, 0.15, 1);
+    --animation-duration: 2s;
+    width: var(--size);
+    height: var(--stroke-width);
+    background-color: var(--color);
+    transform: scaleX(0);
+    transform-origin: center left;
+    animation: var(--animation-timing-function) var(--animation-duration) infinite line-1-horizontal-animation;
+  }
+  
+  @keyframes line-1-horizontal-animation {
+    0% {
+      transform: scaleX(0);
+      transform-origin: center left;
+    }
+  
+    50% {
+      transform: scaleX(1);
+      transform-origin: center left;
+    }
+  
+    51% {
+      transform: scaleX(1);
+      transform-origin: center right;
+    }
+  
+    100% {
+      transform: scaleX(0);
+      transform-origin: center right;
+    }
+  }
+
+  .Select-value {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }

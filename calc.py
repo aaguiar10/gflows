@@ -5,11 +5,15 @@ from datetime import datetime, timedelta
 from os import getcwd
 import yfinance as yf
 from warnings import simplefilter
+import pandas_market_calendars as mcal
+from calendar import monthrange
 
 # Ignore warning for NaN values in dataframe
 simplefilter(action="ignore", category=RuntimeWarning)
 
 pd.options.display.float_format = "{:,.4f}".format
+
+
 # Black-Scholes Pricing Formula
 # S is stock price, K is strike price
 def calcDeltaEx(S, K, vol, T, r, q, optType, OI):
@@ -63,16 +67,56 @@ def calcCharmEx(S, K, vol, T, r, q, optType, OI):
         return OI * 100 * T * charm
 
 
-def isThirdFriday(d):
-    return d.weekday() == 4 and 15 <= d.day <= 21
+def monthlyExp(date):
+    return date
+
+
+def isThirdFriday(date):
+    _, last = monthrange(date.year, date.month)
+    first = datetime(date.year, date.month, 1).strftime("%Y %B %d")
+    last = datetime(date.year, date.month, last).strftime("%Y %B %d")
+    result = mcal.get_calendar("NYSE").schedule(start_date=first, end_date=last)
+    result = result.index.to_pydatetime()
+    found = [False, False]
+    for i in result:
+        if i.weekday() == 4 and 15 <= i.day <= 21:
+            # Third Friday
+            found[0] = i + timedelta(hours=16)
+        elif i.weekday() == 3 and 15 <= i.day <= 21:
+            # Thursday alternative
+            found[1] = i + timedelta(hours=16)
+    # returns Third Friday if market open,
+    # else if market closed returns the Thursday before it
+    return found[0] if found[0] else found[1]
+
+
+def marketIsOpen(date):
+    result = mcal.get_calendar("NYSE").schedule(
+        start_date=date.strftime("%Y-%m-%d"), end_date=date.strftime("%Y-%m-%d")
+    )
+    if not result.empty:
+        # market is open so return that date
+        return date
+    else:
+        # market is closed so look for when it is open
+        return marketIsOpen(date + timedelta(days=1))
+
+
+# check 10 yr treasury yield
+def checkTenYr(date):
+    data = yf.Ticker("^TNX").history(start=date, end=date, prepost=True)
+    if data.empty:
+        # no data for that day so check previous
+        return checkTenYr(date - timedelta(days=1))
+    else:
+        return data.tail(1)["Close"].item()
 
 
 def getOptionsData(ticker, expir):
-    dividend_yield = 0  # assume 0
-    yield_10yr = 0
-    tnx_data = yf.Ticker("^TNX").history(period="5d", interval="15m")
-    yield_10yr = tnx_data.tail(1)["Close"].item()
-    filename = getcwd() + "/data/" + expir + "_exp/" + ticker + "_quotedata.csv"
+    if expir != "all":
+        filename = getcwd() + "/data/monthly_exp/" + ticker + "_quotedata.csv"
+    else:
+        filename = getcwd() + "/data/all_exp/" + ticker + "_quotedata.csv"
     # This assumes the CBOE file format hasn't been edited, i.e. table begins at line 4
     optionsFile = open(filename, encoding="utf-8")
     optionsFileData = optionsFile.readlines()
@@ -157,6 +201,26 @@ def getOptionsData(ticker, expir):
     df["PutGamma"] = df["PutGamma"].astype(float)
     df["CallOpenInt"] = df["CallOpenInt"].astype(float)
     df["PutOpenInt"] = df["PutOpenInt"].astype(float)
+
+    firstExpiry = df["ExpirationDate"].min()
+    thisMonthlyExp = isThirdFriday(firstExpiry)
+
+    if expir != "all":
+        monthly_options_dates = [
+            monthlyExp(firstExpiry),
+            marketIsOpen(firstExpiry),
+            thisMonthlyExp,
+        ]
+    else:
+        monthly_options_dates = []
+
+    dividend_yield = 0  # assume 0
+    yield_10yr = checkTenYr(firstExpiry)
+
+    if expir == "0dte":
+        df = df.loc[df["ExpirationDate"] == firstExpiry]
+    elif expir == "opex":
+        df = df.loc[df["ExpirationDate"] <= thisMonthlyExp]
 
     # set DTE. 0DTE options are included in 1 day expiration
     df["daysTillExp"] = [
@@ -259,11 +323,6 @@ def getOptionsData(ticker, expir):
     put_ivs_exp = dfAgg_exp_mean["PutIV"]
     # ---=== CALCULATE EXPOSURE PROFILES ===---
     levels = np.linspace(fromStrike, toStrike, 180)
-    nextExpiry = df["ExpirationDate"].min()
-
-    df["IsThirdFriday"] = [isThirdFriday(x) for x in df.ExpirationDate]
-    thirdFridays = df.loc[df["IsThirdFriday"] == True]
-    nextMonthlyExp = thirdFridays["ExpirationDate"].min()
 
     totalDelta = []
     totalDeltaExNext = []
@@ -393,24 +452,47 @@ def getOptionsData(ticker, expir):
             0,
         )
         # print(time.perf_counter())
+
         # delta exposure
         totalDelta.append(df["callDeltaEx"].sum() + df["putDeltaEx"].sum())
-        exNxt = df.loc[df["ExpirationDate"] != nextExpiry]
-        totalDeltaExNext.append(exNxt["callDeltaEx"].sum() + exNxt["putDeltaEx"].sum())
-        exFri = df.loc[df["ExpirationDate"] != nextMonthlyExp]
-        totalDeltaExFri.append(exFri["callDeltaEx"].sum() + exFri["putDeltaEx"].sum())
         # gamma exposure
         totalGamma.append(df["callGammaEx"].sum() - df["putGammaEx"].sum())
-        totalGammaExNext.append(exNxt["callGammaEx"].sum() - exNxt["putGammaEx"].sum())
-        totalGammaExFri.append(exFri["callGammaEx"].sum() - exFri["putGammaEx"].sum())
         # vanna exposure
         totalVanna.append(df["callVannaEx"].sum() - df["putVannaEx"].sum())
-        totalVannaExNext.append(exNxt["callVannaEx"].sum() - exNxt["putVannaEx"].sum())
-        totalVannaExFri.append(exFri["callVannaEx"].sum() - exFri["putVannaEx"].sum())
         # charm exposure
         totalCharm.append(df["callCharmEx"].sum() - df["putCharmEx"].sum())
-        totalCharmExNext.append(exNxt["callCharmEx"].sum() - exNxt["putCharmEx"].sum())
-        totalCharmExFri.append(exFri["callCharmEx"].sum() - exFri["putCharmEx"].sum())
+
+        if expir != "0dte":
+            # exposure for next expiry
+            exNxt = df.loc[df["ExpirationDate"] != firstExpiry]
+            totalDeltaExNext.append(
+                exNxt["callDeltaEx"].sum() + exNxt["putDeltaEx"].sum()
+            )
+            totalGammaExNext.append(
+                exNxt["callGammaEx"].sum() - exNxt["putGammaEx"].sum()
+            )
+            totalVannaExNext.append(
+                exNxt["callVannaEx"].sum() - exNxt["putVannaEx"].sum()
+            )
+            totalCharmExNext.append(
+                exNxt["callCharmEx"].sum() - exNxt["putCharmEx"].sum()
+            )
+            if expir == "all":
+                # exposure for next monthly expiry
+                exFri = df.loc[df["ExpirationDate"] != thisMonthlyExp]
+                totalDeltaExFri.append(
+                    exFri["callDeltaEx"].sum() + exFri["putDeltaEx"].sum()
+                )
+                totalGammaExFri.append(
+                    exFri["callGammaEx"].sum() - exFri["putGammaEx"].sum()
+                )
+                totalVannaExFri.append(
+                    exFri["callVannaEx"].sum() - exFri["putVannaEx"].sum()
+                )
+                totalCharmExFri.append(
+                    exFri["callCharmEx"].sum() - exFri["putCharmEx"].sum()
+                )
+
     totalDelta = np.array(totalDelta) / 10**11
     totalDeltaExNext = np.array(totalDeltaExNext) / 10**11
     totalDeltaExFri = np.array(totalDeltaExFri) / 10**11
@@ -447,10 +529,12 @@ def getOptionsData(ticker, expir):
         zeroGamma = zeroGamma[0]
     else:
         print("gamma flip not found for " + ticker + " " + expir)
+
     return (
         df,
         data_time,
         todayDate,
+        monthly_options_dates,
         strikes,
         exp_dates,
         spotPrice,

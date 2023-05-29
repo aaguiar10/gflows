@@ -9,3 +9,4 @@ dash-bootstrap-components
 gunicorn
 apscheduler
 requests
+pandas-market-calendars
