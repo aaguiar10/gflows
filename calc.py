@@ -104,7 +104,9 @@ def marketIsOpen(date):
 
 # check 10 yr treasury yield
 def checkTenYr(date):
-    data = yf.Ticker("^TNX").history(start=date, end=date, prepost=True)
+    data = yf.Ticker("^TNX").history(
+        start=date - timedelta(days=1), end=date, prepost=True
+    )
     if data.empty:
         # no data for that day so check previous
         return checkTenYr(date - timedelta(days=1))
