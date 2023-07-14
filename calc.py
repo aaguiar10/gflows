@@ -67,39 +67,34 @@ def calcCharmEx(S, K, vol, T, r, q, optType, OI):
         return OI * 100 * T * charm
 
 
-def monthlyExp(date):
-    return date
-
-
 def isThirdFriday(date):
     _, last = monthrange(date.year, date.month)
     first = datetime(date.year, date.month, 1).strftime("%Y %B %d")
-    last = datetime(date.year, date.month, last).strftime("%Y %B %d")
+    last = datetime(date.year, (date + timedelta(weeks=4)).month, last).strftime(
+        "%Y %B %d"
+    )
     result = mcal.get_calendar("NYSE").schedule(start_date=first, end_date=last)
     result = result.index.to_pydatetime()
     found = [False, False]
     for i in result:
-        if i.weekday() == 4 and 15 <= i.day <= 21:
+        if i.weekday() == 4 and 15 <= i.day <= 21 and i.month == date.month:
             # Third Friday
             found[0] = i + timedelta(hours=16)
-        elif i.weekday() == 3 and 15 <= i.day <= 21:
+        elif i.weekday() == 3 and 15 <= i.day <= 21 and i.month == date.month:
             # Thursday alternative
             found[1] = i + timedelta(hours=16)
     # returns Third Friday if market open,
     # else if market closed returns the Thursday before it
-    return found[0] if found[0] else found[1]
+    return (found[0], result) if found[0] else (found[1], result)
 
 
-def marketIsOpen(date):
-    result = mcal.get_calendar("NYSE").schedule(
-        start_date=date.strftime("%Y-%m-%d"), end_date=date.strftime("%Y-%m-%d")
-    )
-    if not result.empty:
+def isMarketOpen(date, calendar):
+    if date in calendar:
         # market is open so return that date
         return date
     else:
         # market is closed so look for when it is open
-        return marketIsOpen(date + timedelta(days=1))
+        return isMarketOpen(date + timedelta(days=1), calendar)
 
 
 # check 10 yr treasury yield
@@ -205,24 +200,26 @@ def getOptionsData(ticker, expir):
     df["PutOpenInt"] = df["PutOpenInt"].astype(float)
 
     firstExpiry = df["ExpirationDate"].min()
-    thisMonthlyExp = isThirdFriday(firstExpiry)
-
+    thisMonthlyOpex, calendarRange = isThirdFriday(firstExpiry)
     if expir != "all":
+        # month, 0DTE, monthly opex
         monthly_options_dates = [
-            monthlyExp(firstExpiry),
-            marketIsOpen(firstExpiry),
-            thisMonthlyExp,
+            firstExpiry,
+            isMarketOpen(
+                datetime(firstExpiry.year, firstExpiry.month, firstExpiry.day),
+                calendarRange,
+            ),
+            thisMonthlyOpex,
         ]
     else:
         monthly_options_dates = []
-
     dividend_yield = 0  # assume 0
     yield_10yr = checkTenYr(firstExpiry)
 
     if expir == "0dte":
         df = df.loc[df["ExpirationDate"] == firstExpiry]
     elif expir == "opex":
-        df = df.loc[df["ExpirationDate"] <= thisMonthlyExp]
+        df = df.loc[df["ExpirationDate"] <= thisMonthlyOpex]
 
     # set DTE. 0DTE options are included in 1 day expiration
     df["daysTillExp"] = [
@@ -231,98 +228,118 @@ def getOptionsData(ticker, expir):
         else np.busday_count(todayDate.date(), x.date()) / 252
         for x in df.ExpirationDate
     ]
+
+    expirations = df["ExpirationDate"].to_numpy()
+
+    # parameters to reuse
+    params = np.vstack(
+        (
+            df["StrikePrice"].to_numpy(),
+            df["daysTillExp"].to_numpy(),
+            df["CallIV"].to_numpy(),
+            df["CallOpenInt"].to_numpy(),
+            df["PutIV"].to_numpy(),
+            df["PutOpenInt"].to_numpy(),
+        )
+    )
+    nonzero_call_cond = np.logical_and(params[1] > 0, params[2] > 0)
+    nonzero_put_cond = np.logical_and(params[1] > 0, params[4] > 0)
+
     # ---=== CALCULATE EXPOSURES ===---
-    df["CallGEX"] = (
-        df["CallGamma"] * df["CallOpenInt"] * 100 * spotPrice * spotPrice * 0.01
-    )
-    df["PutGEX"] = (
-        df["PutGamma"] * df["PutOpenInt"] * 100 * spotPrice * spotPrice * 0.01 * -1
-    )
     df["CallDEX"] = (
-        df["CallDelta"] * df["CallOpenInt"] * 100 * spotPrice * spotPrice * 0.01
+        df["CallDelta"].to_numpy() * params[3] * 100 * spotPrice * spotPrice * 0.01
     )
     df["PutDEX"] = (
-        df["PutDelta"] * df["PutOpenInt"] * 100 * spotPrice * spotPrice * 0.01
+        df["PutDelta"].to_numpy() * params[5] * 100 * spotPrice * spotPrice * 0.01
+    )
+    df["CallGEX"] = (
+        df["CallGamma"].to_numpy() * params[3] * 100 * spotPrice * spotPrice * 0.01
+    )
+    df["PutGEX"] = (
+        df["PutGamma"].to_numpy() * params[5] * 100 * spotPrice * spotPrice * 0.01 * -1
     )
     df["CallVEX"] = np.where(
-        np.logical_and(df["daysTillExp"] > 0, df["CallIV"] > 0),
+        nonzero_call_cond,
         calcVannaEx(
             spotPrice,
-            df["StrikePrice"],
-            df["CallIV"],
-            df["daysTillExp"],
+            df["StrikePrice"].to_numpy(),
+            params[2],
+            params[1],
             yield_10yr,
             dividend_yield,
             "call",
-            df["CallOpenInt"],
+            params[3],
         ),
         0,
     )
     df["PutVEX"] = np.where(
-        np.logical_and(df["daysTillExp"] > 0, df["PutIV"] > 0),
+        nonzero_put_cond,
         calcVannaEx(
             spotPrice,
-            df["StrikePrice"],
-            df["PutIV"],
-            df["daysTillExp"],
+            df["StrikePrice"].to_numpy(),
+            params[4],
+            params[1],
             yield_10yr,
             dividend_yield,
             "put",
-            df["PutOpenInt"],
+            params[5],
         ),
         0,
     )
     df["CallCEX"] = np.where(
-        np.logical_and(df["daysTillExp"] > 0, df["CallIV"] > 0),
+        nonzero_call_cond,
         calcCharmEx(
             spotPrice,
-            df["StrikePrice"],
-            df["CallIV"],
-            df["daysTillExp"],
+            df["StrikePrice"].to_numpy(),
+            params[2],
+            params[1],
             yield_10yr,
             dividend_yield,
             "call",
-            df["CallOpenInt"],
+            params[3],
         ),
         0,
     )
     df["PutCEX"] = np.where(
-        np.logical_and(df["daysTillExp"] > 0, df["PutIV"] > 0),
+        nonzero_put_cond,
         calcCharmEx(
             spotPrice,
-            df["StrikePrice"],
-            df["PutIV"],
-            df["daysTillExp"],
+            df["StrikePrice"].to_numpy(),
+            params[4],
+            params[1],
             yield_10yr,
             dividend_yield,
             "put",
-            df["PutOpenInt"],
+            params[5],
         ),
         0,
     )
     # Calculate total and scale down
-    df["TotalGamma"] = (df.CallGEX + df.PutGEX) / 10**9
-    df["TotalDelta"] = (df.CallDEX + df.PutDEX) / 10**11
-    df["TotalVanna"] = (df.CallVEX - df.PutVEX) / 10**9
-    df["TotalCharm"] = (df.CallCEX - df.PutCEX) / 10**9
-    # filter strikes and expiration dates for relevance
-    dfAgg_strike = df.groupby(["StrikePrice"]).sum(numeric_only=True)
-    dfAgg_strike = dfAgg_strike.loc[fromStrike:toStrike]
-    dfAgg_strike_mean = df.groupby(["StrikePrice"]).mean(numeric_only=True)
+    df["TotalDelta"] = (df["CallDEX"].to_numpy() + df["PutDEX"].to_numpy()) / 10**11
+    df["TotalGamma"] = (df["CallGEX"].to_numpy() + df["PutGEX"].to_numpy()) / 10**9
+    df["TotalVanna"] = (df["CallVEX"].to_numpy() - df["PutVEX"].to_numpy()) / 10**9
+    df["TotalCharm"] = (df["CallCEX"].to_numpy() - df["PutCEX"].to_numpy()) / 10**9
+
+    # group all options by strike / expiration then average their IVs
+    dfAgg_strike_mean = (
+        df[["StrikePrice", "CallIV", "PutIV"]]
+        .groupby(["StrikePrice"])
+        .mean(numeric_only=True)
+    )
+    dfAgg_exp_mean = (
+        df[["ExpirationDate", "CallIV", "PutIV"]]
+        .groupby(["ExpirationDate"])
+        .mean(numeric_only=True)
+    )
+    # filter strikes / expirations for relevance
     dfAgg_strike_mean = dfAgg_strike_mean.loc[fromStrike:toStrike]
-    dfAgg_exp = df.groupby(["ExpirationDate"]).sum(numeric_only=True)
-    dfAgg_exp = dfAgg_exp.loc[: todayDate + timedelta(weeks=26)]
-    dfAgg_exp_mean = df.groupby(["ExpirationDate"]).mean(numeric_only=True)
     dfAgg_exp_mean = dfAgg_exp_mean.loc[todayDate : todayDate + timedelta(weeks=26)]
 
-    strikes = dfAgg_strike.index.values
-    exp_dates = dfAgg_exp.index.values
+    call_ivs = dfAgg_strike_mean["CallIV"].to_numpy()
+    put_ivs = dfAgg_strike_mean["PutIV"].to_numpy()
+    call_ivs_exp = dfAgg_exp_mean["CallIV"].to_numpy()
+    put_ivs_exp = dfAgg_exp_mean["PutIV"].to_numpy()
 
-    # average IVs over all options in dfAgg
-    call_ivs = dfAgg_strike_mean["CallIV"]
-    put_ivs = dfAgg_strike_mean["PutIV"]
-    call_ivs_exp = dfAgg_exp_mean["CallIV"]
-    put_ivs_exp = dfAgg_exp_mean["PutIV"]
     # ---=== CALCULATE EXPOSURE PROFILES ===---
     levels = np.linspace(fromStrike, toStrike, 180)
 
@@ -338,161 +355,166 @@ def getOptionsData(ticker, expir):
     totalCharm = []
     totalCharmExNext = []
     totalCharmExFri = []
-    # For each spot level, calc exposure at that point
+
+    # For each spot level, calculate greek exposure at that point
     for level in levels:
-        # print(time.perf_counter())
-        df["callDeltaEx"] = np.where(
-            np.logical_and(df["daysTillExp"] > 0, df["CallIV"] > 0),
+        callDeltaEx = np.where(
+            nonzero_call_cond,
             calcDeltaEx(
                 level,
-                df["StrikePrice"],
-                df["CallIV"],
-                df["daysTillExp"],
+                params[0],
+                params[2],
+                params[1],
                 yield_10yr,
                 dividend_yield,
                 "call",
-                df["CallOpenInt"],
+                params[3],
             ),
             0,
         )
-        df["putDeltaEx"] = np.where(
-            np.logical_and(df["daysTillExp"] > 0, df["PutIV"] > 0),
+        putDeltaEx = np.where(
+            nonzero_put_cond,
             calcDeltaEx(
                 level,
-                df["StrikePrice"],
-                df["PutIV"],
-                df["daysTillExp"],
+                params[0],
+                params[4],
+                params[1],
                 yield_10yr,
                 dividend_yield,
                 "put",
-                df["PutOpenInt"],
+                params[5],
             ),
             0,
         )
-        df["callGammaEx"] = np.where(
-            np.logical_and(df["daysTillExp"] > 0, df["CallIV"] > 0),
+        callGammaEx = np.where(
+            nonzero_call_cond,
             calcGammaEx(
                 level,
-                df["StrikePrice"],
-                df["CallIV"],
-                df["daysTillExp"],
+                params[0],
+                params[2],
+                params[1],
                 yield_10yr,
                 dividend_yield,
                 "call",
-                df["CallOpenInt"],
+                params[3],
             ),
             0,
         )
-        df["putGammaEx"] = np.where(
-            np.logical_and(df["daysTillExp"] > 0, df["PutIV"] > 0),
+        putGammaEx = np.where(
+            nonzero_put_cond,
             calcGammaEx(
                 level,
-                df["StrikePrice"],
-                df["PutIV"],
-                df["daysTillExp"],
+                params[0],
+                params[4],
+                params[1],
                 yield_10yr,
                 dividend_yield,
                 "put",
-                df["PutOpenInt"],
+                params[5],
             ),
             0,
         )
-        df["callVannaEx"] = np.where(
-            np.logical_and(df["daysTillExp"] > 0, df["CallIV"] > 0),
+        callVannaEx = np.where(
+            nonzero_call_cond,
             calcVannaEx(
                 level,
-                df["StrikePrice"],
-                df["CallIV"],
-                df["daysTillExp"],
+                params[0],
+                params[2],
+                params[1],
                 yield_10yr,
                 dividend_yield,
                 "call",
-                df["CallOpenInt"],
+                params[3],
             ),
             0,
         )
-        df["putVannaEx"] = np.where(
-            np.logical_and(df["daysTillExp"] > 0, df["PutIV"] > 0),
+        putVannaEx = np.where(
+            nonzero_put_cond,
             calcVannaEx(
                 level,
-                df["StrikePrice"],
-                df["PutIV"],
-                df["daysTillExp"],
+                params[0],
+                params[4],
+                params[1],
                 yield_10yr,
                 dividend_yield,
                 "put",
-                df["PutOpenInt"],
+                params[5],
             ),
             0,
         )
-        df["callCharmEx"] = np.where(
-            np.logical_and(df["daysTillExp"] > 0, df["CallIV"] > 0),
+        callCharmEx = np.where(
+            nonzero_call_cond,
             calcCharmEx(
                 level,
-                df["StrikePrice"],
-                df["CallIV"],
-                df["daysTillExp"],
+                params[0],
+                params[2],
+                params[1],
                 yield_10yr,
                 dividend_yield,
                 "call",
-                df["CallOpenInt"],
+                params[3],
             ),
             0,
         )
-        df["putCharmEx"] = np.where(
-            np.logical_and(df["daysTillExp"] > 0, df["PutIV"] > 0),
+        putCharmEx = np.where(
+            nonzero_put_cond,
             calcCharmEx(
                 level,
-                df["StrikePrice"],
-                df["PutIV"],
-                df["daysTillExp"],
+                params[0],
+                params[4],
+                params[1],
                 yield_10yr,
                 dividend_yield,
                 "put",
-                df["PutOpenInt"],
+                params[5],
             ),
             0,
         )
-        # print(time.perf_counter())
 
         # delta exposure
-        totalDelta.append(df["callDeltaEx"].sum() + df["putDeltaEx"].sum())
+        totalDelta.append(callDeltaEx.sum() + putDeltaEx.sum())
         # gamma exposure
-        totalGamma.append(df["callGammaEx"].sum() - df["putGammaEx"].sum())
+        totalGamma.append(callGammaEx.sum() - putGammaEx.sum())
         # vanna exposure
-        totalVanna.append(df["callVannaEx"].sum() - df["putVannaEx"].sum())
+        totalVanna.append(callVannaEx.sum() - putVannaEx.sum())
         # charm exposure
-        totalCharm.append(df["callCharmEx"].sum() - df["putCharmEx"].sum())
+        totalCharm.append(callCharmEx.sum() - putCharmEx.sum())
 
         if expir != "0dte":
             # exposure for next expiry
-            exNxt = df.loc[df["ExpirationDate"] != firstExpiry]
             totalDeltaExNext.append(
-                exNxt["callDeltaEx"].sum() + exNxt["putDeltaEx"].sum()
+                np.where(expirations != firstExpiry, callDeltaEx, 0).sum()
+                + np.where(expirations != firstExpiry, putDeltaEx, 0).sum()
             )
             totalGammaExNext.append(
-                exNxt["callGammaEx"].sum() - exNxt["putGammaEx"].sum()
+                np.where(expirations != firstExpiry, callGammaEx, 0).sum()
+                - np.where(expirations != firstExpiry, putGammaEx, 0).sum()
             )
             totalVannaExNext.append(
-                exNxt["callVannaEx"].sum() - exNxt["putVannaEx"].sum()
+                np.where(expirations != firstExpiry, callVannaEx, 0).sum()
+                - np.where(expirations != firstExpiry, putVannaEx, 0).sum()
             )
             totalCharmExNext.append(
-                exNxt["callCharmEx"].sum() - exNxt["putCharmEx"].sum()
+                np.where(expirations != firstExpiry, callCharmEx, 0).sum()
+                - np.where(expirations != firstExpiry, putCharmEx, 0).sum()
             )
             if expir == "all":
                 # exposure for next monthly expiry
-                exFri = df.loc[df["ExpirationDate"] != thisMonthlyExp]
                 totalDeltaExFri.append(
-                    exFri["callDeltaEx"].sum() + exFri["putDeltaEx"].sum()
+                    np.where(expirations != thisMonthlyOpex, callDeltaEx, 0).sum()
+                    + np.where(expirations != thisMonthlyOpex, putDeltaEx, 0).sum()
                 )
                 totalGammaExFri.append(
-                    exFri["callGammaEx"].sum() - exFri["putGammaEx"].sum()
+                    np.where(expirations != thisMonthlyOpex, callGammaEx, 0).sum()
+                    - np.where(expirations != thisMonthlyOpex, putGammaEx, 0).sum()
                 )
                 totalVannaExFri.append(
-                    exFri["callVannaEx"].sum() - exFri["putVannaEx"].sum()
+                    np.where(expirations != thisMonthlyOpex, callVannaEx, 0).sum()
+                    - np.where(expirations != thisMonthlyOpex, putVannaEx, 0).sum()
                 )
                 totalCharmExFri.append(
-                    exFri["callCharmEx"].sum() - exFri["putCharmEx"].sum()
+                    np.where(expirations != thisMonthlyOpex, callCharmEx, 0).sum()
+                    - np.where(expirations != thisMonthlyOpex, putCharmEx, 0).sum()
                 )
 
     totalDelta = np.array(totalDelta) / 10**11
@@ -537,8 +559,6 @@ def getOptionsData(ticker, expir):
         data_time,
         todayDate,
         monthly_options_dates,
-        strikes,
-        exp_dates,
         spotPrice,
         fromStrike,
         toStrike,

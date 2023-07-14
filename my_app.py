@@ -52,7 +52,7 @@ def query_data(ticker, expir):
     # Retrieve stored CBOE data of specified ticker & expiry
     result = getOptionsData(ticker, expir)
     if result == None:
-        return (None,) * 28
+        return (None,) * 26
     return result
 
 
@@ -171,8 +171,6 @@ def update_live_chart(value, stock, expiration, is_iv):
         data_time,
         todaydate,
         monthly_options_dates,
-        strikes,
-        exp_dates,
         spotprice,
         from_strike,
         to_strike,
@@ -214,9 +212,17 @@ def update_live_chart(value, stock, expiration, is_iv):
             True,
             no_update,
         )
-    dcc.Store(id="data-time", data=data_time, storage_type="memory")
-    dfAgg = df.groupby(["StrikePrice"]).sum(numeric_only=True)
-    dfAgg = dfAgg.loc[from_strike:to_strike]
+    dfAgg = (
+        df.groupby(["StrikePrice"]).sum(numeric_only=True).loc[from_strike:to_strike]
+    )
+    strikes = dfAgg.index.to_numpy()
+    exp_dates = (
+        df.groupby(["ExpirationDate"])
+        .sum(numeric_only=True)
+        .loc[: todaydate + timedelta(weeks=26)]
+        .index.to_numpy()
+    )
+
     name = value.split()[1]
     name_date = value.count("By Date")
     num_type = " per 1% "
