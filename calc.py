@@ -100,12 +100,13 @@ def isMarketOpen(date, calendar):
 # check 10 yr treasury yield
 def checkTenYr(date):
     data = yf.Ticker("^TNX").history(
-        start=date - timedelta(days=1), end=date, prepost=True
+        start=date - timedelta(days=5), end=date, prepost=True
     )
     if data.empty:
-        # no data for that day so check previous
-        return checkTenYr(date - timedelta(days=1))
+        # no data for the date range so look back further
+        return checkTenYr(date - timedelta(days=2))
     else:
+        # most recent date
         return data.tail(1)["Close"].item()
 
 
@@ -341,194 +342,179 @@ def getOptionsData(ticker, expir):
     put_ivs_exp = dfAgg_exp_mean["PutIV"].to_numpy()
 
     # ---=== CALCULATE EXPOSURE PROFILES ===---
-    levels = np.linspace(fromStrike, toStrike, 180)
-
-    totalDelta = []
-    totalDeltaExNext = []
-    totalDeltaExFri = []
-    totalGamma = []
-    totalGammaExNext = []
-    totalGammaExFri = []
-    totalVanna = []
-    totalVannaExNext = []
-    totalVannaExFri = []
-    totalCharm = []
-    totalCharmExNext = []
-    totalCharmExFri = []
+    levels = np.linspace(fromStrike, toStrike, 180).reshape(-1, 1)
+    totalDelta = np.array([])
+    totalDeltaExNext = np.array([])
+    totalDeltaExFri = np.array([])
+    totalGamma = np.array([])
+    totalGammaExNext = np.array([])
+    totalGammaExFri = np.array([])
+    totalVanna = np.array([])
+    totalVannaExNext = np.array([])
+    totalVannaExFri = np.array([])
+    totalCharm = np.array([])
+    totalCharmExNext = np.array([])
+    totalCharmExFri = np.array([])
 
     # For each spot level, calculate greek exposure at that point
-    for level in levels:
-        callDeltaEx = np.where(
-            nonzero_call_cond,
-            calcDeltaEx(
-                level,
-                params[0],
-                params[2],
-                params[1],
-                yield_10yr,
-                dividend_yield,
-                "call",
-                params[3],
-            ),
-            0,
-        )
-        putDeltaEx = np.where(
-            nonzero_put_cond,
-            calcDeltaEx(
-                level,
-                params[0],
-                params[4],
-                params[1],
-                yield_10yr,
-                dividend_yield,
-                "put",
-                params[5],
-            ),
-            0,
-        )
-        callGammaEx = np.where(
-            nonzero_call_cond,
-            calcGammaEx(
-                level,
-                params[0],
-                params[2],
-                params[1],
-                yield_10yr,
-                dividend_yield,
-                "call",
-                params[3],
-            ),
-            0,
-        )
-        putGammaEx = np.where(
-            nonzero_put_cond,
-            calcGammaEx(
-                level,
-                params[0],
-                params[4],
-                params[1],
-                yield_10yr,
-                dividend_yield,
-                "put",
-                params[5],
-            ),
-            0,
-        )
-        callVannaEx = np.where(
-            nonzero_call_cond,
-            calcVannaEx(
-                level,
-                params[0],
-                params[2],
-                params[1],
-                yield_10yr,
-                dividend_yield,
-                "call",
-                params[3],
-            ),
-            0,
-        )
-        putVannaEx = np.where(
-            nonzero_put_cond,
-            calcVannaEx(
-                level,
-                params[0],
-                params[4],
-                params[1],
-                yield_10yr,
-                dividend_yield,
-                "put",
-                params[5],
-            ),
-            0,
-        )
-        callCharmEx = np.where(
-            nonzero_call_cond,
-            calcCharmEx(
-                level,
-                params[0],
-                params[2],
-                params[1],
-                yield_10yr,
-                dividend_yield,
-                "call",
-                params[3],
-            ),
-            0,
-        )
-        putCharmEx = np.where(
-            nonzero_put_cond,
-            calcCharmEx(
-                level,
-                params[0],
-                params[4],
-                params[1],
-                yield_10yr,
-                dividend_yield,
-                "put",
-                params[5],
-            ),
-            0,
-        )
+    callDeltaEx = np.where(
+        nonzero_call_cond,
+        calcDeltaEx(
+            levels,
+            params[0],
+            params[2],
+            params[1],
+            yield_10yr,
+            dividend_yield,
+            "call",
+            params[3],
+        ),
+        0,
+    )
+    putDeltaEx = np.where(
+        nonzero_put_cond,
+        calcDeltaEx(
+            levels,
+            params[0],
+            params[4],
+            params[1],
+            yield_10yr,
+            dividend_yield,
+            "put",
+            params[5],
+        ),
+        0,
+    )
+    callGammaEx = np.where(
+        nonzero_call_cond,
+        calcGammaEx(
+            levels,
+            params[0],
+            params[2],
+            params[1],
+            yield_10yr,
+            dividend_yield,
+            "call",
+            params[3],
+        ),
+        0,
+    )
+    putGammaEx = np.where(
+        nonzero_put_cond,
+        calcGammaEx(
+            levels,
+            params[0],
+            params[4],
+            params[1],
+            yield_10yr,
+            dividend_yield,
+            "put",
+            params[5],
+        ),
+        0,
+    )
+    callVannaEx = np.where(
+        nonzero_call_cond,
+        calcVannaEx(
+            levels,
+            params[0],
+            params[2],
+            params[1],
+            yield_10yr,
+            dividend_yield,
+            "call",
+            params[3],
+        ),
+        0,
+    )
+    putVannaEx = np.where(
+        nonzero_put_cond,
+        calcVannaEx(
+            levels,
+            params[0],
+            params[4],
+            params[1],
+            yield_10yr,
+            dividend_yield,
+            "put",
+            params[5],
+        ),
+        0,
+    )
+    callCharmEx = np.where(
+        nonzero_call_cond,
+        calcCharmEx(
+            levels,
+            params[0],
+            params[2],
+            params[1],
+            yield_10yr,
+            dividend_yield,
+            "call",
+            params[3],
+        ),
+        0,
+    )
+    putCharmEx = np.where(
+        nonzero_put_cond,
+        calcCharmEx(
+            levels,
+            params[0],
+            params[4],
+            params[1],
+            yield_10yr,
+            dividend_yield,
+            "put",
+            params[5],
+        ),
+        0,
+    )
 
-        # delta exposure
-        totalDelta.append(callDeltaEx.sum() + putDeltaEx.sum())
-        # gamma exposure
-        totalGamma.append(callGammaEx.sum() - putGammaEx.sum())
-        # vanna exposure
-        totalVanna.append(callVannaEx.sum() - putVannaEx.sum())
-        # charm exposure
-        totalCharm.append(callCharmEx.sum() - putCharmEx.sum())
+    # delta exposure
+    totalDelta = (callDeltaEx.sum(axis=1) + putDeltaEx.sum(axis=1)) / 10**11
+    # gamma exposure
+    totalGamma = (callGammaEx.sum(axis=1) - putGammaEx.sum(axis=1)) / 10**9
+    # vanna exposure
+    totalVanna = (callVannaEx.sum(axis=1) - putVannaEx.sum(axis=1)) / 10**9
+    # charm exposure
+    totalCharm = (callCharmEx.sum(axis=1) - putCharmEx.sum(axis=1)) / 10**9
 
-        if expir != "0dte":
-            # exposure for next expiry
-            totalDeltaExNext.append(
-                np.where(expirations != firstExpiry, callDeltaEx, 0).sum()
-                + np.where(expirations != firstExpiry, putDeltaEx, 0).sum()
-            )
-            totalGammaExNext.append(
-                np.where(expirations != firstExpiry, callGammaEx, 0).sum()
-                - np.where(expirations != firstExpiry, putGammaEx, 0).sum()
-            )
-            totalVannaExNext.append(
-                np.where(expirations != firstExpiry, callVannaEx, 0).sum()
-                - np.where(expirations != firstExpiry, putVannaEx, 0).sum()
-            )
-            totalCharmExNext.append(
-                np.where(expirations != firstExpiry, callCharmEx, 0).sum()
-                - np.where(expirations != firstExpiry, putCharmEx, 0).sum()
-            )
-            if expir == "all":
-                # exposure for next monthly expiry
-                totalDeltaExFri.append(
-                    np.where(expirations != thisMonthlyOpex, callDeltaEx, 0).sum()
-                    + np.where(expirations != thisMonthlyOpex, putDeltaEx, 0).sum()
-                )
-                totalGammaExFri.append(
-                    np.where(expirations != thisMonthlyOpex, callGammaEx, 0).sum()
-                    - np.where(expirations != thisMonthlyOpex, putGammaEx, 0).sum()
-                )
-                totalVannaExFri.append(
-                    np.where(expirations != thisMonthlyOpex, callVannaEx, 0).sum()
-                    - np.where(expirations != thisMonthlyOpex, putVannaEx, 0).sum()
-                )
-                totalCharmExFri.append(
-                    np.where(expirations != thisMonthlyOpex, callCharmEx, 0).sum()
-                    - np.where(expirations != thisMonthlyOpex, putCharmEx, 0).sum()
-                )
-
-    totalDelta = np.array(totalDelta) / 10**11
-    totalDeltaExNext = np.array(totalDeltaExNext) / 10**11
-    totalDeltaExFri = np.array(totalDeltaExFri) / 10**11
-    totalGamma = np.array(totalGamma) / 10**9
-    totalGammaExNext = np.array(totalGammaExNext) / 10**9
-    totalGammaExFri = np.array(totalGammaExFri) / 10**9
-    totalVanna = np.array(totalVanna) / 10**9
-    totalVannaExNext = np.array(totalVannaExNext) / 10**9
-    totalVannaExFri = np.array(totalVannaExFri) / 10**9
-    totalCharm = np.array(totalCharm) / 10**9
-    totalCharmExNext = np.array(totalCharmExNext) / 10**9
-    totalCharmExFri = np.array(totalCharmExFri) / 10**9
+    if expir != "0dte":
+        # exposure for next expiry
+        totalDeltaExNext = (
+            np.where(expirations != firstExpiry, callDeltaEx, 0).sum(axis=1)
+            + np.where(expirations != firstExpiry, putDeltaEx, 0).sum(axis=1)
+        ) / 10**11
+        totalGammaExNext = (
+            np.where(expirations != firstExpiry, callGammaEx, 0).sum(axis=1)
+            - np.where(expirations != firstExpiry, putGammaEx, 0).sum(axis=1)
+        ) / 10**9
+        totalVannaExNext = (
+            np.where(expirations != firstExpiry, callVannaEx, 0).sum(axis=1)
+            - np.where(expirations != firstExpiry, putVannaEx, 0).sum(axis=1)
+        ) / 10**9
+        totalCharmExNext = (
+            np.where(expirations != firstExpiry, callCharmEx, 0).sum(axis=1)
+            - np.where(expirations != firstExpiry, putCharmEx, 0).sum(axis=1)
+        ) / 10**9
+        if expir == "all":
+            # exposure for next monthly opex
+            totalDeltaExFri = (
+                np.where(expirations != thisMonthlyOpex, callDeltaEx, 0).sum(axis=1)
+                + np.where(expirations != thisMonthlyOpex, putDeltaEx, 0).sum(axis=1)
+            ) / 10**11
+            totalGammaExFri = (
+                np.where(expirations != thisMonthlyOpex, callGammaEx, 0).sum(axis=1)
+                - np.where(expirations != thisMonthlyOpex, putGammaEx, 0).sum(axis=1)
+            ) / 10**9
+            totalVannaExFri = (
+                np.where(expirations != thisMonthlyOpex, callVannaEx, 0).sum(axis=1)
+                - np.where(expirations != thisMonthlyOpex, putVannaEx, 0).sum(axis=1)
+            ) / 10**9
+            totalCharmExFri = (
+                np.where(expirations != thisMonthlyOpex, callCharmEx, 0).sum(axis=1)
+                - np.where(expirations != thisMonthlyOpex, putCharmEx, 0).sum(axis=1)
+            ) / 10**9
 
     # Find Delta Flip Point
     zeroCrossIdx = np.where(np.diff(np.sign(totalDelta)))[0]
@@ -546,11 +532,11 @@ def getOptionsData(ticker, expir):
     zeroGamma = posStrike - ((posStrike - negStrike) * posGamma / (posGamma - negGamma))
 
     if zeroDelta.size > 0:
-        zeroDelta = zeroDelta[0]
+        zeroDelta = zeroDelta[0][0]
     else:
         print("delta flip not found for " + ticker + " " + expir)
     if zeroGamma.size > 0:
-        zeroGamma = zeroGamma[0]
+        zeroGamma = zeroGamma[0][0]
     else:
         print("gamma flip not found for " + ticker + " " + expir)
 
@@ -562,7 +548,7 @@ def getOptionsData(ticker, expir):
         spotPrice,
         fromStrike,
         toStrike,
-        levels,
+        levels.ravel(),
         totalDelta,
         totalDeltaExNext,
         totalDeltaExFri,
