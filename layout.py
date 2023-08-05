@@ -86,13 +86,13 @@ def serve_layout():
                                                     "label": html.Div(
                                                         className="line-1-horizontal"
                                                     ),
-                                                    "value": "0dte-btn",
+                                                    "value": "opex-btn",
                                                 },
                                                 {
                                                     "label": html.Div(
                                                         className="line-1-horizontal"
                                                     ),
-                                                    "value": "opex-btn",
+                                                    "value": "0dte-btn",
                                                 },
                                             ],
                                             id="monthly-options",
@@ -199,7 +199,11 @@ def serve_layout():
                     dbc.Row(
                         dcc.Graph(id="live-chart", responsive=True),
                         class_name="vw-100 vh-100 mt-0",
-                    )
+                    ),
+                    dbc.Row(
+                        html.Footer("* expirations up to monthly OPEX"),
+                        class_name="float-end align-super",
+                    ),
                 ],
                 type="default",
             ),

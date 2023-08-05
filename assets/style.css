@@ -97,3 +97,9 @@
     align-items: center;
     justify-content: center;
   }
+
+  .align-super {
+    position: relative;
+    bottom: 0.2em;
+    font-size: 0.7rem;
+  }

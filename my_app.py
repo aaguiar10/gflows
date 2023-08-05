@@ -1,4 +1,4 @@
-from dash import Dash, dcc, Input, Output, ctx, no_update
+from dash import Dash, html, Input, Output, ctx, no_update
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output
 import plotly.graph_objects as go
@@ -78,14 +78,14 @@ def on_click(value, btn):
         expir = "monthly"
         is_all_active = False
         current_val = "monthly-btn"
-    elif "0dte-btn" == value:
-        expir = "0dte"
-        is_all_active = False
-        current_val = "0dte-btn"
     elif "opex-btn" == value:
         expir = "opex"
         is_all_active = False
         current_val = "opex-btn"
+    elif "0dte-btn" == value:
+        expir = "0dte"
+        is_all_active = False
+        current_val = "0dte-btn"
     return expir, is_all_active, current_val
 
 
@@ -536,12 +536,18 @@ def update_live_chart(value, stock, expiration, is_iv):
                 "value": "monthly-btn",
             },
             {
-                "label": monthly_options_dates[1].strftime("%Y %B %d"),
-                "value": "0dte-btn",
+                "label": html.Div(
+                    children=[
+                        monthly_options_dates[1].strftime("%Y %B %d"),
+                        html.Span("*", className="align-super"),
+                    ],
+                    className="d-flex align-items-center",
+                ),
+                "value": "opex-btn",
             },
             {
-                "label": monthly_options_dates[2].strftime("%Y %B %d") + " (OPEX)",
-                "value": "opex-btn",
+                "label": monthly_options_dates[2].strftime("%Y %B %d"),
+                "value": "0dte-btn",
             },
         ]
     else:

@@ -70,9 +70,7 @@ def calcCharmEx(S, K, vol, T, r, q, optType, OI):
 def isThirdFriday(date):
     _, last = monthrange(date.year, date.month)
     first = datetime(date.year, date.month, 1).strftime("%Y %B %d")
-    last = datetime(date.year, (date + timedelta(weeks=4)).month, last).strftime(
-        "%Y %B %d"
-    )
+    last = datetime(date.year, date.month, last).strftime("%Y %B %d")
     result = mcal.get_calendar("NYSE").schedule(start_date=first, end_date=last)
     result = result.index.to_pydatetime()
     found = [False, False]
@@ -203,14 +201,14 @@ def getOptionsData(ticker, expir):
     firstExpiry = df["ExpirationDate"].min()
     thisMonthlyOpex, calendarRange = isThirdFriday(firstExpiry)
     if expir != "all":
-        # month, 0DTE, monthly opex
+        # month, monthly opex, 0DTE
         monthly_options_dates = [
             firstExpiry,
+            thisMonthlyOpex,
             isMarketOpen(
                 datetime(firstExpiry.year, firstExpiry.month, firstExpiry.day),
                 calendarRange,
             ),
-            thisMonthlyOpex,
         ]
     else:
         monthly_options_dates = []
