@@ -105,7 +105,7 @@ def checkTenYr(date):
         return checkTenYr(date - timedelta(days=2))
     else:
         # most recent date
-        return data.tail(1)["Close"].item()
+        return data.tail(1)["Close"].item() / 100
 
 
 def getOptionsData(ticker, expir):
