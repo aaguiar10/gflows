@@ -22,11 +22,11 @@ def serve_layout():
                     dbc.Popover(
                         dbc.PopoverBody(
                             children=[
-                                "G|Flows, or Greek Flows, can measure various market risks that \
-                            influence option prices. ",
+                                "G|Flows, or Greek Flows, measures market risks that \
+                                can affect option prices. ",
                                 html.Br(),
                                 html.Span(
-                                    "Monday-Friday: 30-minute updates from 9:30am-4:30pm ET (CBOE delayed data)",
+                                    "Monday-Friday: 30-minute updates from 9:00am-4:30pm ET (CBOE delayed data)",
                                     className="fst-italic",
                                 ),
                             ]

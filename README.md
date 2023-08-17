@@ -1,6 +1,6 @@
 # G|Flows
 
-G|Flows, aka Greek Flows, provides 30-minute updates every Monday-Friday from 9:30am-4:30pm ET.
+G|Flows, or Greek Flows, provides 30-minute updates every Monday-Friday from 9:00am-4:30pm ET.
 
 ## Features:
 

@@ -1,12 +1,13 @@
-from scipy.stats import norm
-import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
+import numpy as np
+from scipy.stats import norm
+from yahooquery import Ticker
 from datetime import datetime, timedelta
 from os import getcwd
-import yfinance as yf
 from warnings import simplefilter
-import pandas_market_calendars as mcal
 from calendar import monthrange
+from cachetools import cached, TTLCache
 
 # Ignore warning for NaN values in dataframe
 simplefilter(action="ignore", category=RuntimeWarning)
@@ -67,6 +68,7 @@ def calcCharmEx(S, K, vol, T, r, q, optType, OI):
         return OI * 100 * T * charm
 
 
+@cached(cache=TTLCache(maxsize=16, ttl=60 * 60 * 4))  # in-memory cache for 4 hrs
 def isThirdFriday(date):
     _, last = monthrange(date.year, date.month)
     first = datetime(date.year, date.month, 1).strftime("%Y %B %d")
@@ -96,16 +98,15 @@ def isMarketOpen(date, calendar):
 
 
 # check 10 yr treasury yield
+@cached(cache=TTLCache(maxsize=16, ttl=60 * 30))  # in-memory cache for 30 min
 def checkTenYr(date):
-    data = yf.Ticker("^TNX").history(
-        start=date - timedelta(days=5), end=date, prepost=True
-    )
+    data = Ticker("^TNX").history(start=date - timedelta(days=5), end=date)
     if data.empty:
         # no data for the date range so look back further
         return checkTenYr(date - timedelta(days=2))
     else:
         # most recent date
-        return data.tail(1)["Close"].item() / 100
+        return data.tail(1)["close"].item() / 100
 
 
 def getOptionsData(ticker, expir):
@@ -137,17 +138,20 @@ def getOptionsData(ticker, expir):
         retrieved_ampm = todayDate[1].split("at")[1].split("EDT")
     timezone = " ET "
     am_pm = "%I:%M %p"
-    data_time = (
+
+    data_time = datetime.strptime(retrieved_ampm[0].strip(), am_pm) - timedelta(
+        minutes=15
+    )
+    data_date_time = (
         datetime.strptime(todayDate[0], "%B %d").strftime("%b %d")
         + ","
         + todayDate[1].split("at")[0]
         + "at "
-        + (
-            datetime.strptime(retrieved_ampm[0].strip(), am_pm) - timedelta(minutes=15)
-        ).strftime("%-I:%M %p")
+        + data_time.strftime("%-I:%M %p")
         + timezone
         + "(15min delay)"
     )
+
     monthDay = todayDate[0].split(" ")
     # Handling of US/EU date formats
     if len(monthDay) == 2:
@@ -159,7 +163,9 @@ def getOptionsData(ticker, expir):
         month = monthDay[1]
         day = int(monthDay[0])
     todayDate = datetime.strptime(month, "%B")
-    todayDate = todayDate.replace(day=day, year=year)
+    todayDate = todayDate.replace(day=day, year=year) + timedelta(
+        hours=data_time.hour, minutes=data_time.minute
+    )
     df = pd.read_csv(filename, sep=",", header=None, skiprows=4)
     df.columns = [
         "ExpirationDate",
@@ -198,8 +204,16 @@ def getOptionsData(ticker, expir):
     df["CallOpenInt"] = df["CallOpenInt"].astype(float)
     df["PutOpenInt"] = df["PutOpenInt"].astype(float)
 
-    firstExpiry = df["ExpirationDate"].min()
+    all_dates = df["ExpirationDate"].drop_duplicates()
+    firstExpiry = all_dates.iat[0]
+    if todayDate > firstExpiry:
+        # first date expired so use next date as 0DTE
+        firstExpiry = all_dates.iat[1]
     thisMonthlyOpex, calendarRange = isThirdFriday(firstExpiry)
+
+    dividend_yield = 0  # assume 0
+    yield_10yr = checkTenYr(firstExpiry)
+
     if expir != "all":
         # month, monthly opex, 0DTE
         monthly_options_dates = [
@@ -212,8 +226,6 @@ def getOptionsData(ticker, expir):
         ]
     else:
         monthly_options_dates = []
-    dividend_yield = 0  # assume 0
-    yield_10yr = checkTenYr(firstExpiry)
 
     if expir == "0dte":
         df = df.loc[df["ExpirationDate"] == firstExpiry]
@@ -540,7 +552,7 @@ def getOptionsData(ticker, expir):
 
     return (
         df,
-        data_time,
+        data_date_time,
         todayDate,
         monthly_options_dates,
         spotPrice,

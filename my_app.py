@@ -21,10 +21,12 @@ app = Dash(
         {"name": "viewport", "content": "width=device-width, initial-scale=1"},
     ],
 )
-app.title = "G|Flows"
 server = app.server
+app.title = "G|Flows"
+app.layout = serve_layout
+
 cache = Cache(
-    app.server,
+    server,
     config={
         "CACHE_TYPE": "FileSystemCache",
         "CACHE_DIR": "cache",
@@ -44,19 +46,14 @@ sched.add_job(sensor)
 sched.add_job(sensor, CronTrigger.from_crontab("0,30 13-20 * * 0-4", timezone=UTC))
 sched.start()
 
-TIMEOUT = 1800
 
-
-@cache.memoize(timeout=TIMEOUT)  # cache charts for 30min
+@cache.memoize(timeout=60 * 30)  # cache charts for 30 min
 def query_data(ticker, expir):
     # Retrieve stored CBOE data of specified ticker & expiry
     result = getOptionsData(ticker, expir)
     if result == None:
         return (None,) * 26
     return result
-
-
-app.layout = serve_layout
 
 
 @app.callback(  # handle selected expiration
@@ -168,7 +165,7 @@ def on_click(btn1, btn2, btn3, btn4):
 def update_live_chart(value, stock, expiration, is_iv):
     (
         df,
-        data_time,
+        data_date_time,
         todaydate,
         monthly_options_dates,
         spotprice,
@@ -222,6 +219,15 @@ def update_live_chart(value, stock, expiration, is_iv):
         .loc[: todaydate + timedelta(weeks=26)]
         .index.to_numpy()
     )
+
+    if expiration == "monthly":
+        legend_title = monthly_options_dates[0].strftime("%Y %b")
+    elif expiration == "opex":
+        legend_title = monthly_options_dates[1].strftime("%Y %b %d")
+    elif expiration == "0dte":
+        legend_title = monthly_options_dates[2].strftime("%Y %b %d")
+    else:
+        legend_title = "All Expirations"
 
     name = value.split()[1]
     name_date = value.count("By Date")
@@ -295,7 +301,7 @@ def update_live_chart(value, stock, expiration, is_iv):
             + str("{:,.2f}".format(df["Total" + name].sum() * factor))
             + num_type
             + descript
-            + data_time,
+            + data_date_time,
             width=50,
         )
         fig.update_layout(  # bar chart layout
@@ -309,6 +315,7 @@ def update_live_chart(value, stock, expiration, is_iv):
             paper_bgcolor="#fff",
             margin=dict(l=0, r=40),
             legend=dict(
+                title_text=legend_title,
                 orientation="v",
                 yanchor="top",
                 xanchor="right",
@@ -346,7 +353,7 @@ def update_live_chart(value, stock, expiration, is_iv):
             ex_fri = totalcharm_exfri
         fig = make_subplots(rows=1, cols=1)
         split_title = textwrap.wrap(
-            stock + " " + name + " Exposure Profile, " + data_time, width=50
+            stock + " " + name + " Exposure Profile, " + data_date_time, width=50
         )
         if is_iv == 1:  # chart profiles normally
             fig.add_trace(go.Scatter(x=levels, y=all_ex, name="All Expiries"))
@@ -451,7 +458,9 @@ def update_live_chart(value, stock, expiration, is_iv):
                     line_color="#32A3A3",
                 )
             )
-            split_title = textwrap.wrap(stock + " IV Profile, " + data_time, width=50)
+            split_title = textwrap.wrap(
+                stock + " IV Profile, " + data_date_time, width=50
+            )
         fig.update_layout(  # scatter chart layout
             title_text="<br>".join(split_title),
             title_x=0.5,
@@ -467,6 +476,7 @@ def update_live_chart(value, stock, expiration, is_iv):
             },
             showlegend=True,
             legend=dict(
+                title_text=legend_title,
                 orientation="v",
                 yanchor="top",
                 xanchor="right",
@@ -557,4 +567,5 @@ def update_live_chart(value, stock, expiration, is_iv):
 
 
 if __name__ == "__main__":
+    cache.clear()
     app.run(debug=False)

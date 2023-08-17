@@ -1,9 +1,10 @@
 flask
 pandas
-yfinance
+yahooquery
 plotly
 dash
 Flask-Caching
+cachetools
 scipy
 dash-bootstrap-components
 gunicorn
