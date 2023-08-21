@@ -15,7 +15,7 @@ def serve_layout():
                         style={
                             "width": "30px",
                             "height": "22px",
-                            "font-size": "1.1rem",
+                            "fontSize": "1.1rem",
                         },
                         id="info-btn",
                     ),
@@ -31,7 +31,7 @@ def serve_layout():
                                 ),
                             ]
                         ),
-                        style={"font-size": "12px"},
+                        style={"fontSize": "12px"},
                         target="info-btn",
                         trigger="hover",
                         placement="left",
@@ -244,14 +244,14 @@ def serve_layout():
                                     "call: asset price above option strike\n\
                                     put: asset price under option strike",
                                     target="tooltip1",
-                                    style={"white-space": "pre-line"},
+                                    style={"whiteSpace": "pre-line"},
                                     placement="bottom",
                                 ),
                                 dbc.Tooltip(
                                     "call: asset price under option strike\n\
                                     put: asset price above option strike",
                                     target="tooltip2",
-                                    style={"white-space": "pre-line"},
+                                    style={"whiteSpace": "pre-line"},
                                     placement="bottom",
                                 ),
                             ],
@@ -318,7 +318,7 @@ def serve_layout():
                         ),
                     ],
                     start_collapsed=True,
-                    style={"white-space": "pre-line"},
+                    style={"whiteSpace": "pre-line"},
                 ),
                 class_name="vw-100",
             ),
@@ -336,7 +336,7 @@ def serve_layout():
                                     html.Span(
                                         "Support the Creator",
                                         className="ms-1",
-                                        style={"font-size": "14px"},
+                                        style={"fontSize": "14px"},
                                     ),
                                 ],
                                 className="d-inline-flex align-items-center justify-content-center",
@@ -370,8 +370,8 @@ def serve_layout():
                                     ),
                                     class_name="d-flex justify-content-center",
                                     style={
-                                        "border-top": "2px solid rgba(0,0,0,.5)",
-                                        "font-size": "0.9rem",
+                                        "borderTop": "2px solid rgba(0,0,0,.5)",
+                                        "fontSize": "0.9rem",
                                     },
                                 ),
                             ],

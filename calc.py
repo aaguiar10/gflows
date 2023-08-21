@@ -207,8 +207,11 @@ def getOptionsData(ticker, expir):
     all_dates = df["ExpirationDate"].drop_duplicates()
     firstExpiry = all_dates.iat[0]
     if todayDate > firstExpiry:
-        # first date expired so use next date as 0DTE
-        firstExpiry = all_dates.iat[1]
+        # first date expired so, if available, use next date as 0DTE
+        try:
+            firstExpiry = all_dates.iat[1]
+        except IndexError:
+            print("next date unavailable. using expired date")
     thisMonthlyOpex, calendarRange = isThirdFriday(firstExpiry)
 
     dividend_yield = 0  # assume 0
