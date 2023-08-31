@@ -10,6 +10,9 @@ G|Flows, or Greek Flows, provides 30-minute updates every Monday-Friday from 9:0
 
 ## Setup
 
+Compatible with Python versions **>=3.9**
+
+
 Install the app's required packages:
 
 ```{.sourceCode .bash}
