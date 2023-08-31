@@ -11,3 +11,4 @@ gunicorn
 apscheduler
 requests
 pandas-market-calendars
+dateparser

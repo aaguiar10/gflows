@@ -164,8 +164,7 @@ def serve_layout():
                     ),
                 ],
             ),
-            html.Div(id="exp-button-timestamp", hidden=True),
-            html.Div(id="greek-button-timestamp", hidden=True),
+            dcc.Store(id="exp-value", storage_type="memory"),
             dbc.Row(
                 dcc.Dropdown(
                     options=[

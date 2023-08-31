@@ -57,7 +57,7 @@ def query_data(ticker, expir):
 
 
 @app.callback(  # handle selected expiration
-    Output("exp-button-timestamp", "children"),
+    Output("exp-value", "data"),
     Output("all-btn", "active"),
     Output("monthly-options", "value"),
     Input("monthly-options", "value"),
@@ -87,7 +87,6 @@ def on_click(value, btn):
 
 
 @app.callback(  # handle selected option greek
-    Output("greek-button-timestamp", "children"),
     Output("delta-btn", "active"),
     Output("gamma-btn", "active"),
     Output("vanna-btn", "active"),
@@ -101,7 +100,6 @@ def on_click(value, btn):
     Input("charm-btn", "n_clicks"),
 )
 def on_click(btn1, btn2, btn3, btn4):
-    greek = "delta"
     is_active1 = True
     is_active2 = False
     is_active3 = False
@@ -114,7 +112,6 @@ def on_click(btn1, btn2, btn3, btn4):
     value = "Absolute Delta Exposure"
     page = 1
     if "gamma-btn" == ctx.triggered_id:
-        greek = "gamma"
         is_active1 = False
         is_active2 = True
         is_active3 = False
@@ -127,7 +124,6 @@ def on_click(btn1, btn2, btn3, btn4):
         value = "Absolute Gamma Exposure"
 
     elif "vanna-btn" == ctx.triggered_id:
-        greek = "vanna"
         is_active1 = False
         is_active2 = False
         is_active3 = True
@@ -139,7 +135,6 @@ def on_click(btn1, btn2, btn3, btn4):
         ]
         value = "Absolute Vanna Exposure"
     elif "charm-btn" == ctx.triggered_id:
-        greek = "charm"
         is_active1 = False
         is_active2 = False
         is_active3 = False
@@ -150,7 +145,7 @@ def on_click(btn1, btn2, btn3, btn4):
             "Charm Exposure Profile By Date",
         ]
         value = "Absolute Charm Exposure"
-    return greek, is_active1, is_active2, is_active3, is_active4, page, options, value
+    return is_active1, is_active2, is_active3, is_active4, page, options, value
 
 
 @app.callback(  # handle chart display based on inputs
@@ -159,14 +154,14 @@ def on_click(btn1, btn2, btn3, btn4):
     Output("monthly-options", "options"),
     Input("live-dropdown", "value"),
     Input("tabs", "active_tab"),
-    Input("exp-button-timestamp", "children"),
+    Input("exp-value", "data"),
     Input("pagination", "active_page"),
 )
 def update_live_chart(value, stock, expiration, is_iv):
     (
         df,
-        data_date_time,
-        todaydate,
+        today_ddt,
+        today_ddt_string,
         monthly_options_dates,
         spotprice,
         from_strike,
@@ -216,7 +211,7 @@ def update_live_chart(value, stock, expiration, is_iv):
     exp_dates = (
         df.groupby(["ExpirationDate"])
         .sum(numeric_only=True)
-        .loc[: todaydate + timedelta(weeks=26)]
+        .loc[: today_ddt + timedelta(weeks=26)]
         .index.to_numpy()
     )
 
@@ -301,7 +296,7 @@ def update_live_chart(value, stock, expiration, is_iv):
             + str("{:,.2f}".format(df["Total" + name].sum() * factor))
             + num_type
             + descript
-            + data_date_time,
+            + today_ddt_string,
             width=50,
         )
         fig.update_layout(  # bar chart layout
@@ -353,7 +348,7 @@ def update_live_chart(value, stock, expiration, is_iv):
             ex_fri = totalcharm_exfri
         fig = make_subplots(rows=1, cols=1)
         split_title = textwrap.wrap(
-            stock + " " + name + " Exposure Profile, " + data_date_time, width=50
+            stock + " " + name + " Exposure Profile, " + today_ddt_string, width=50
         )
         if is_iv == 1:  # chart profiles normally
             fig.add_trace(go.Scatter(x=levels, y=all_ex, name="All Expiries"))
@@ -459,7 +454,7 @@ def update_live_chart(value, stock, expiration, is_iv):
                 )
             )
             split_title = textwrap.wrap(
-                stock + " IV Profile, " + data_date_time, width=50
+                stock + " IV Profile, " + today_ddt_string, width=50
             )
         fig.update_layout(  # scatter chart layout
             title_text="<br>".join(split_title),
@@ -500,7 +495,7 @@ def update_live_chart(value, stock, expiration, is_iv):
         range=(
             [spotprice * 0.9, spotprice * 1.1]
             if not value.count("By Date")
-            else [todaydate, todaydate + timedelta(days=31)]
+            else [today_ddt, today_ddt + timedelta(days=31)]
         ),
         gridcolor="lightgray",
         gridwidth=1,
@@ -510,8 +505,8 @@ def update_live_chart(value, stock, expiration, is_iv):
                 [from_strike, to_strike]
                 if not value.count("By Date")
                 else [
-                    exp_dates.min() if exp_dates.size != 0 else todaydate,
-                    exp_dates.max() if exp_dates.size != 0 else todaydate,
+                    exp_dates.min() if exp_dates.size != 0 else today_ddt,
+                    exp_dates.max() if exp_dates.size != 0 else today_ddt,
                 ]
             ),
         ),

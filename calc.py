@@ -3,7 +3,8 @@ import pandas_market_calendars as mcal
 import numpy as np
 from scipy.stats import norm
 from yahooquery import Ticker
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from dateparser.date import DateDataParser
 from os import getcwd
 from warnings import simplefilter
 from calendar import monthrange
@@ -71,18 +72,18 @@ def calcCharmEx(S, K, vol, T, r, q, optType, OI):
 @cached(cache=TTLCache(maxsize=16, ttl=60 * 60 * 4))  # in-memory cache for 4 hrs
 def isThirdFriday(date):
     _, last = monthrange(date.year, date.month)
-    first = datetime(date.year, date.month, 1).strftime("%Y %B %d")
-    last = datetime(date.year, date.month, last).strftime("%Y %B %d")
+    first = datetime(date.year, date.month, 1)
+    last = datetime(date.year, date.month, last)
     result = mcal.get_calendar("NYSE").schedule(start_date=first, end_date=last)
     result = result.index.to_pydatetime()
     found = [False, False]
     for i in result:
         if i.weekday() == 4 and 15 <= i.day <= 21 and i.month == date.month:
             # Third Friday
-            found[0] = i + timedelta(hours=16)
+            found[0] = i.replace(tzinfo=timezone.utc) + timedelta(hours=20)
         elif i.weekday() == 3 and 15 <= i.day <= 21 and i.month == date.month:
             # Thursday alternative
-            found[1] = i + timedelta(hours=16)
+            found[1] = i.replace(tzinfo=timezone.utc) + timedelta(hours=20)
     # returns Third Friday if market open,
     # else if market closed returns the Thursday before it
     return (found[0], result) if found[0] else (found[1], result)
@@ -109,6 +110,14 @@ def checkTenYr(date):
         return data.tail(1)["close"].item() / 100
 
 
+def isParseable(date):
+    try:
+        datetime.strptime(date.split()[-2], "%H:%M")
+        return True
+    except ValueError:
+        return False
+
+
 def getOptionsData(ticker, expir):
     if expir != "all":
         filename = getcwd() + "/data/monthly_exp/" + ticker + "_quotedata.csv"
@@ -130,42 +139,21 @@ def getOptionsData(ticker, expir):
     toStrike = 1.5 * spotPrice
     # Get Today's Date
     dateLine = optionsFileData[2]
-    todayDate = dateLine.split("Date: ")[1].split(",")
-    timezone = ""
-    if "EST" in todayDate[1]:
-        retrieved_ampm = todayDate[1].split("at")[1].split("EST")
-    else:
-        retrieved_ampm = todayDate[1].split("at")[1].split("EDT")
-    timezone = " ET "
-    am_pm = "%I:%M %p"
+    todayDate = dateLine.split("Date: ")[1].split(",Bid")[0]
 
-    data_time = datetime.strptime(retrieved_ampm[0].strip(), am_pm) - timedelta(
-        minutes=15
-    )
-    data_date_time = (
-        datetime.strptime(todayDate[0], "%B %d").strftime("%b %d")
-        + ","
-        + todayDate[1].split("at")[0]
-        + "at "
-        + data_time.strftime("%-I:%M %p")
-        + timezone
-        + "(15min delay)"
-    )
-
-    monthDay = todayDate[0].split(" ")
-    # Handling of US/EU date formats
-    if len(monthDay) == 2:
-        year = int(todayDate[1].split("at")[0])
-        month = monthDay[0]
-        day = int(monthDay[1])
+    # Handle date formats
+    if isParseable(todayDate):
+        pass
     else:
-        year = int(monthDay[2])
-        month = monthDay[1]
-        day = int(monthDay[0])
-    todayDate = datetime.strptime(month, "%B")
-    todayDate = todayDate.replace(day=day, year=year) + timedelta(
-        hours=data_time.hour, minutes=data_time.minute
-    )
+        tmp = todayDate.split()
+        tmp[-1], tmp[-2] = tmp[-2], tmp[-1]
+        todayDate = " ".join(tmp)
+    todayDate = DateDataParser(
+        settings={"TO_TIMEZONE": "America/New_York"}
+    ).get_date_data(todayDate)
+    today_ddt = todayDate.date_obj - timedelta(minutes=15)
+    today_ddt_string = today_ddt.strftime("%b %d, %Y, %I:%M %p %Z") + " (15min delay)"
+
     df = pd.read_csv(filename, sep=",", header=None, skiprows=4)
     df.columns = [
         "ExpirationDate",
@@ -192,8 +180,10 @@ def getOptionsData(ticker, expir):
         "PutOpenInt",
     ]
 
-    df["ExpirationDate"] = pd.to_datetime(df["ExpirationDate"], format="%a %b %d %Y")
-    df["ExpirationDate"] = df["ExpirationDate"] + timedelta(hours=16)
+    df["ExpirationDate"] = pd.to_datetime(
+        df["ExpirationDate"], format="%a %b %d %Y", utc=True
+    ) + timedelta(hours=20)
+    df["ExpirationDate"] = df["ExpirationDate"].dt.tz_convert(todayDate.date_obj.tzinfo)
     df["StrikePrice"] = df["StrikePrice"].astype(float)
     df["CallIV"] = df["CallIV"].astype(float)
     df["PutIV"] = df["PutIV"].astype(float)
@@ -206,13 +196,14 @@ def getOptionsData(ticker, expir):
 
     all_dates = df["ExpirationDate"].drop_duplicates()
     firstExpiry = all_dates.iat[0]
-    if todayDate > firstExpiry:
+    if today_ddt > firstExpiry:
         # first date expired so, if available, use next date as 0DTE
         try:
             firstExpiry = all_dates.iat[1]
         except IndexError:
             print("next date unavailable. using expired date")
     thisMonthlyOpex, calendarRange = isThirdFriday(firstExpiry)
+    thisMonthlyOpex = thisMonthlyOpex.astimezone(tz=todayDate.date_obj.tzinfo)
 
     dividend_yield = 0  # assume 0
     yield_10yr = checkTenYr(firstExpiry)
@@ -238,8 +229,8 @@ def getOptionsData(ticker, expir):
     # set DTE. 0DTE options are included in 1 day expiration
     df["daysTillExp"] = [
         1 / 252
-        if (np.busday_count(todayDate.date(), x.date())) == 0
-        else np.busday_count(todayDate.date(), x.date()) / 252
+        if (np.busday_count(today_ddt.date(), x.date())) == 0
+        else np.busday_count(today_ddt.date(), x.date()) / 252
         for x in df.ExpirationDate
     ]
 
@@ -347,7 +338,7 @@ def getOptionsData(ticker, expir):
     )
     # filter strikes / expirations for relevance
     dfAgg_strike_mean = dfAgg_strike_mean.loc[fromStrike:toStrike]
-    dfAgg_exp_mean = dfAgg_exp_mean.loc[todayDate : todayDate + timedelta(weeks=26)]
+    dfAgg_exp_mean = dfAgg_exp_mean.loc[today_ddt : today_ddt + timedelta(weeks=26)]
 
     call_ivs = dfAgg_strike_mean["CallIV"].to_numpy()
     put_ivs = dfAgg_strike_mean["PutIV"].to_numpy()
@@ -555,8 +546,8 @@ def getOptionsData(ticker, expir):
 
     return (
         df,
-        data_date_time,
-        todayDate,
+        today_ddt,
+        today_ddt_string,
         monthly_options_dates,
         spotPrice,
         fromStrike,
