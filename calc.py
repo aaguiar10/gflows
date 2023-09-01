@@ -3,7 +3,8 @@ import pandas_market_calendars as mcal
 import numpy as np
 from scipy.stats import norm
 from yahooquery import Ticker
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from pytz import timezone
 from dateparser.date import DateDataParser
 from os import getcwd
 from warnings import simplefilter
@@ -80,10 +81,10 @@ def isThirdFriday(date):
     for i in result:
         if i.weekday() == 4 and 15 <= i.day <= 21 and i.month == date.month:
             # Third Friday
-            found[0] = i.replace(tzinfo=timezone.utc) + timedelta(hours=20)
+            found[0] = timezone("America/New_York").localize(i) + timedelta(hours=16)
         elif i.weekday() == 3 and 15 <= i.day <= 21 and i.month == date.month:
             # Thursday alternative
-            found[1] = i.replace(tzinfo=timezone.utc) + timedelta(hours=20)
+            found[1] = timezone("America/New_York").localize(i) + timedelta(hours=16)
     # returns Third Friday if market open,
     # else if market closed returns the Thursday before it
     return (found[0], result) if found[0] else (found[1], result)
@@ -148,9 +149,9 @@ def getOptionsData(ticker, expir):
         tmp = todayDate.split()
         tmp[-1], tmp[-2] = tmp[-2], tmp[-1]
         todayDate = " ".join(tmp)
-    todayDate = DateDataParser(
-        settings={"TO_TIMEZONE": "America/New_York"}
-    ).get_date_data(todayDate)
+    todayDate = DateDataParser(settings={"TIMEZONE": "America/New_York"}).get_date_data(
+        todayDate
+    )
     today_ddt = todayDate.date_obj - timedelta(minutes=15)
     today_ddt_string = today_ddt.strftime("%b %d, %Y, %I:%M %p %Z") + " (15min delay)"
 
@@ -181,9 +182,8 @@ def getOptionsData(ticker, expir):
     ]
 
     df["ExpirationDate"] = pd.to_datetime(
-        df["ExpirationDate"], format="%a %b %d %Y", utc=True
-    ) + timedelta(hours=20)
-    df["ExpirationDate"] = df["ExpirationDate"].dt.tz_convert(todayDate.date_obj.tzinfo)
+        df["ExpirationDate"], format="%a %b %d %Y"
+    ).dt.tz_localize(todayDate.date_obj.tzinfo) + timedelta(hours=16)
     df["StrikePrice"] = df["StrikePrice"].astype(float)
     df["CallIV"] = df["CallIV"].astype(float)
     df["PutIV"] = df["PutIV"].astype(float)
@@ -203,7 +203,6 @@ def getOptionsData(ticker, expir):
         except IndexError:
             print("next date unavailable. using expired date")
     thisMonthlyOpex, calendarRange = isThirdFriday(firstExpiry)
-    thisMonthlyOpex = thisMonthlyOpex.astimezone(tz=todayDate.date_obj.tzinfo)
 
     dividend_yield = 0  # assume 0
     yield_10yr = checkTenYr(firstExpiry)

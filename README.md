@@ -12,7 +12,6 @@ G|Flows, or Greek Flows, provides 30-minute updates every Monday-Friday from 9:0
 
 Compatible with Python versions **>=3.9**
 
-
 Install the app's required packages:
 
 ```{.sourceCode .bash}
@@ -34,11 +33,20 @@ For automatic updates, the app's scheduler fetches compatible CSV data from an A
 API_URL=YOURAPIURL
 ```
 
-Alternatively, you can disable this function by commenting out these lines in `my_app.py`:
+Alternatively, you can disable this function by commenting out this code in `my_app.py`:
 
 ```
-# sched.add_job(sensor)
-# sched.add_job(sensor, CronTrigger.from_crontab("0,30 13-20 * * 0-4", timezone=UTC))
+"""
+sched = BackgroundScheduler(daemon=True)
+sched.add_job(sensor)
+sched.add_job(
+    sensor,
+    CronTrigger.from_crontab(
+        "0,30 9-16 * * 0-4", timezone=timezone("America/New_York")
+    ),
+)
+sched.start()
+"""
 ```
 
 Upon completion, run the Dash app (available at http://localhost:8050):

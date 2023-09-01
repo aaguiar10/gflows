@@ -11,7 +11,7 @@ from layout import serve_layout
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from datetime import timedelta
-from pytz import UTC
+from pytz import timezone
 import textwrap
 
 app = Dash(
@@ -43,7 +43,12 @@ def sensor():
 # download data then schedule when to redownload
 sched = BackgroundScheduler(daemon=True)
 sched.add_job(sensor)
-sched.add_job(sensor, CronTrigger.from_crontab("0,30 13-20 * * 0-4", timezone=UTC))
+sched.add_job(
+    sensor,
+    CronTrigger.from_crontab(
+        "0,30 9-16 * * 0-4", timezone=timezone("America/New_York")
+    ),
+)
 sched.start()
 
 
