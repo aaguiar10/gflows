@@ -1,12 +1,24 @@
 # G|Flows
 
-G|Flows, or Greek Flows, provides 30-minute updates every Monday-Friday from 9:00am-4:30pm ET.
+G|Flows, or Greek Flows, provides 30-minute updates for the SPX, NDX, and RUT indexes every Monday-Friday from 9:00am-4:30pm ET.
 
-## Features:
+## Features
 
-- Measure delta, gamma, vanna, and charm exposure for the SPX, NDX, and RUT indexes using CBOE data (delayed 15min)
-- Choose between data for the current month (including 0DTE, monthly opex) or all expirations
-- Need a refresh? View what the four available greeks mean and how they can be interpreted
+### Measure by date & strike price:
+
+- Delta, gamma, vanna, and charm exposure for stocks/indexes
+- Implied volatility (IV) average
+
+### Expirations to choose:
+
+- All expirations
+- Current month
+- Current monthly OPEX
+- 0DTE, if available, otherwise the closest expiration
+
+### Guide:
+
+- Need a refresh? View the meaning behind each greek and how their flows can be interpreted
 
 ## Setup
 
@@ -25,20 +37,24 @@ $ python -m venv venv
 $ source venv/bin/activate
 ```
 
-Options data for your preferred ticker can be downloaded [here](https://www.cboe.com/delayed_quotes/cboe/quote_table) to manually update files in the `data` directory (which the **calc** module uses).
+### Configuration:
 
-For automatic updates, the app's scheduler fetches compatible CSV data from an API. If you have one, provide its URL in a `.env` file:
+Create a .env file in the project's working directory to configure the app, otherwise the app will use default values:
 
 ```dosini
-API_URL=YOURAPIURL
+API_URL=YOURAPIURL      # For downloading options data. If not set, the app defaults to a CBOE API — see ticker_dwn for info
+AUTO_RESPONSE=y         # Auto-respond to prompt 'Download recent data? (y/n).' If not set, user input is requested
+TICKERS=^SPX,^NDX,^RUT  # Default. Choose tickers from https://finance.yahoo.com/lookup (excluding futures)
 ```
 
-Alternatively, you can disable this function by commenting out this code in `my_app.py`:
+`my_app.py`:
+
+G|Flows uses a scheduler to periodically redownload options data. To disable it, comment out this code
 
 ```
 """
+# schedule when to redownload data
 sched = BackgroundScheduler(daemon=True)
-sched.add_job(sensor)
 sched.add_job(
     sensor,
     CronTrigger.from_crontab(
@@ -48,6 +64,25 @@ sched.add_job(
 sched.start()
 """
 ```
+
+To analyze CSV data, change the **is_json** value to **False** within the **analyze_data** function
+
+```
+def analyze_data(ticker, expir):
+    # Analyze stored data of specified ticker and expiry
+    # defaults: json format, timezone 'America/New_York'
+    result = get_options_data(
+        ticker,
+        expir,
+        is_json=True, # False for CSV
+        tz="America/New_York",
+    )
+    ...
+```
+
+For manual updates, CSV-formatted options data can be downloaded [here](https://www.cboe.com/delayed_quotes/cboe/quote_table) then placed in the `data/csv` directory
+
+---
 
 Upon completion, run the Dash app (available at http://localhost:8050):
 

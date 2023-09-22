@@ -1,18 +1,36 @@
-import os
 import requests
 import base64
+import orjson
 from multiprocessing.dummy import Pool as ThreadPool
-import datetime
+from datetime import datetime
+from os import environ
+from pathlib import Path
 
 
 def fulfill_req(ticker, expiry):
-    api_url = os.environ.get("API_URL")
-    print(ticker + " " + expiry)
+    api_url = environ.get(
+        "API_URL",
+        f"https://cdn.cboe.com/api/global/delayed_quotes/options/{ticker.upper()}.json",
+    )
+    is_custom = (
+        False if "cdn.cboe.com/api/global/delayed_quotes/options" in api_url else True
+    )
+    ticker = ticker.lower() if ticker[0] != "_" else ticker[1:].lower()
     for _ in range(3):  # in case of unavailable data, retry twice
-        filename = os.getcwd() + "/data/" + expiry + "_exp/" + ticker + "_quotedata.csv"
-        payload = {"ticker": ticker, "expiry": expiry}
+        filename = (
+            Path(f"data/json/{ticker}_quotedata.json")
+            if not is_custom
+            else Path(f"data/csv/{ticker}_quotedata.csv")
+        )
         with open(filename, "wb") as f, requests.get(
-            api_url, stream=True, params=payload
+            api_url,
+            stream=True,
+            params=None
+            if not is_custom
+            else {
+                "ticker": ticker,
+                "expiry": expiry,
+            },
         ) as r:
             try:  # check if data is available
                 r.raise_for_status()
@@ -20,50 +38,36 @@ def fulfill_req(ticker, expiry):
                 print(e)
                 f.write("Unavailable".encode("utf-8"))
                 if r.status_code == 504:  # check if timeout occurred
-                    print(
-                        "gateway timeout, retrying search for " + ticker + " " + expiry
-                    )
+                    print("gateway timeout, retrying search for", ticker, expiry)
                     continue
                 elif r.status_code == 500:  # internal server error
-                    print(
-                        "internal server error, retrying search for "
-                        + ticker
-                        + " "
-                        + expiry
-                    )
+                    print("internal server error, retrying search for", ticker, expiry)
                     continue
             else:
-                for line in r.iter_lines():
-                    if len(line) % 4:
-                        # add padding:
-                        line += b"==="
-                    f.write(base64.b64decode(line) + "\n".encode("utf-8"))
-        try:  # check if data was received incorrectly
-            options_file = open(filename, encoding="utf-8")
-            options_file.readlines()
-            options_file.close()
-        except:
-            print("corrupted data, retrying search for " + ticker + " " + expiry)
-        else:
-            print("request done for", (ticker, expiry))
-            break
+                if not is_custom:
+                    f.write(orjson.dumps(r.json()))
+                else:
+                    # assumes incoming data is CSV
+                    for line in r.iter_lines():
+                        if len(line) % 4:
+                            # add padding:
+                            line += b"==="
+                        f.write(base64.b64decode(line) + "\n".encode("utf-8"))
+                print("\nrequest done for", ticker, expiry)
+                break
 
 
 def dwn_data():
     pool = ThreadPool()
-    print("start:", datetime.datetime.now())
+    print(f"\ndownload start: {datetime.now()}\n")
+    tickers = environ.get("TICKERS", "^SPX,^NDX,^RUT").split(",")
     ticks_exp = [
-        ("spx", "monthly"),
-        ("spx", "all"),
-        ("ndx", "monthly"),
-        ("ndx", "all"),
-        ("rut", "monthly"),
-        ("rut", "all"),
+        (f"_{ticker[1:]}" if ticker[0] == "^" else ticker, "all") for ticker in tickers
     ]
     pool.starmap(fulfill_req, ticks_exp)
     pool.close()
     pool.join()
-    print("end:", datetime.datetime.now())
+    print(f"\n\ndownload end: {datetime.now()}\n")
 
 
 if __name__ == "__main__":

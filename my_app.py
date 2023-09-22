@@ -1,18 +1,22 @@
-from dash import Dash, html, Input, Output, ctx, no_update
 import dash_bootstrap_components as dbc
-from dash.dependencies import Input, Output
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from dash import Dash, html, Input, Output, ctx, no_update
+from dash.dependencies import Input, Output
 
+import textwrap
 from flask_caching import Cache
-from calc import getOptionsData
+from calc import get_options_data
 from ticker_dwn import dwn_data
 from layout import serve_layout
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from datetime import timedelta
 from pytz import timezone
-import textwrap
+from dotenv import load_dotenv
+from os import environ
+
+load_dotenv()  # load environment variables from .env
 
 app = Dash(
     __name__,
@@ -35,14 +39,24 @@ cache = Cache(
 )
 
 
+# download data at start
+def sensor_init():
+    # respond to prompt if env variable not set
+    response = environ.get("AUTO_RESPONSE") or input("\nDownload recent data? (y/n): ")
+    if response.lower() == "y":
+        dwn_data()
+        cache.delete_memoized(analyze_data)
+    else:
+        print("\nUsing existing data...\n")
+
+
 def sensor():
     dwn_data()
-    cache.delete_memoized(query_data)
+    cache.delete_memoized(analyze_data)
 
 
-# download data then schedule when to redownload
+# schedule when to redownload data
 sched = BackgroundScheduler(daemon=True)
-sched.add_job(sensor)
 sched.add_job(
     sensor,
     CronTrigger.from_crontab(
@@ -53,9 +67,15 @@ sched.start()
 
 
 @cache.memoize(timeout=60 * 30)  # cache charts for 30 min
-def query_data(ticker, expir):
-    # Retrieve stored CBOE data of specified ticker & expiry
-    result = getOptionsData(ticker, expir)
+def analyze_data(ticker, expir):
+    # Analyze stored data of specified ticker and expiry
+    # defaults: json format, timezone 'America/New_York'
+    result = get_options_data(
+        ticker,
+        expir,
+        is_json=True,  # False for CSV
+        tz="America/New_York",
+    )
     if result == None:
         return (None,) * 26
     return result
@@ -135,8 +155,8 @@ def on_click(btn1, btn2, btn3, btn4):
         is_active4 = False
         options = [
             "Absolute Vanna Exposure",
-            "Vanna Exposure (w/ IV) Profile",
-            "Vanna Exposure (w/ IV) Profile By Date ",
+            "Implied Volatility Average",
+            "Vanna Exposure Profile",
         ]
         value = "Absolute Vanna Exposure"
     elif "charm-btn" == ctx.triggered_id:
@@ -147,7 +167,6 @@ def on_click(btn1, btn2, btn3, btn4):
         options = [
             "Absolute Charm Exposure",
             "Charm Exposure Profile",
-            "Charm Exposure Profile By Date",
         ]
         value = "Absolute Charm Exposure"
     return is_active1, is_active2, is_active3, is_active4, page, options, value
@@ -162,13 +181,14 @@ def on_click(btn1, btn2, btn3, btn4):
     Input("exp-value", "data"),
     Input("pagination", "active_page"),
 )
-def update_live_chart(value, stock, expiration, is_iv):
+def update_live_chart(value, stock, expiration, active_page):
+    stock = f"{stock[1:].upper()}" if stock[0] == "^" else stock.upper()
     (
         df,
         today_ddt,
         today_ddt_string,
         monthly_options_dates,
-        spotprice,
+        spot_price,
         from_strike,
         to_strike,
         levels,
@@ -190,8 +210,7 @@ def update_live_chart(value, stock, expiration, is_iv):
         put_ivs,
         call_ivs_exp,
         put_ivs_exp,
-    ) = query_data(stock, expiration)
-    stock = stock.upper()
+    ) = analyze_data(stock, expiration)
     if df is None:
         return (
             go.Figure(
@@ -201,7 +220,7 @@ def update_live_chart(value, stock, expiration, is_iv):
                         "title": {
                             "text": stock + " data unavailable, retry later",
                             "x": 0.5,
-                            "font": {"size": 13},
+                            "font": {"size": 12.5},
                         }
                     },
                 }
@@ -209,28 +228,29 @@ def update_live_chart(value, stock, expiration, is_iv):
             True,
             no_update,
         )
-    dfAgg = (
-        df.groupby(["StrikePrice"]).sum(numeric_only=True).loc[from_strike:to_strike]
+
+    df_agg = (
+        df.groupby(["strike_price"]).sum(numeric_only=True).loc[from_strike:to_strike]
     )
-    strikes = dfAgg.index.to_numpy()
+    strikes = df_agg.index.to_numpy()
+
     exp_dates = (
-        df.groupby(["ExpirationDate"])
+        df.groupby(["expiration_date"])
         .sum(numeric_only=True)
         .loc[: today_ddt + timedelta(weeks=26)]
-        .index.to_numpy()
     )
+    exp_dates_x = exp_dates.index.to_numpy()
 
     if expiration == "monthly":
         legend_title = monthly_options_dates[0].strftime("%Y %b")
     elif expiration == "opex":
         legend_title = monthly_options_dates[1].strftime("%Y %b %d")
     elif expiration == "0dte":
-        legend_title = monthly_options_dates[2].strftime("%Y %b %d")
+        legend_title = monthly_options_dates[0].strftime("%Y %b %d")
     else:
         legend_title = "All Expirations"
 
     name = value.split()[1]
-    name_date = value.count("By Date")
     num_type = " per 1% "
     scale = 10**9
     factor = 10**9
@@ -239,21 +259,25 @@ def update_live_chart(value, stock, expiration, is_iv):
         factor = 10**11
     elif name == "Charm":
         num_type = " a day "
-    if name_date:  # use dates
-        strikes = exp_dates
-        levels = exp_dates
+
+    date_condition = active_page == 2 and not value.count("Profile")
+
+    if date_condition:  # use dates
+        strikes = exp_dates_x
+        levels = exp_dates_x
         call_ivs = call_ivs_exp
         put_ivs = put_ivs_exp
+        df_agg = exp_dates
+
     if (not value.count("Calls/Puts")) and value.count("Absolute"):
         fig = go.Figure(
             data=[
                 go.Bar(
                     name=name + " Exposure",
                     x=strikes,
-                    y=dfAgg["Total" + name].to_numpy(),
-                    width=(6 if not name_date else None),
+                    y=df_agg[f"total_{name.lower()}"].to_numpy(),
                     marker=dict(
-                        line=dict(width=1, color="black"),
+                        line=dict(width=0.25, color="black"),
                     ),
                 )
             ]
@@ -264,24 +288,23 @@ def update_live_chart(value, stock, expiration, is_iv):
                 go.Bar(
                     name="Call " + name,
                     x=strikes,
-                    y=dfAgg["Call" + name[:1] + "EX"].to_numpy() / scale,
-                    width=(6 if not name_date else None),
+                    y=df_agg[f"call_{name[:1].lower()}ex"].to_numpy() / scale,
                     marker=dict(
-                        line=dict(width=1, color="black"),
+                        line=dict(width=0.25, color="black"),
                     ),
                 ),
                 go.Bar(
                     name="Put " + name,
                     x=strikes,
-                    y=dfAgg["Put" + name[:1] + "EX"].to_numpy() / scale,
-                    width=(6 if not name_date else None),
+                    y=df_agg[f"put_{name[:1].lower()}ex"].to_numpy() / scale,
                     marker=dict(
-                        line=dict(width=1, color="black"),
+                        line=dict(width=0.25, color="black"),
                     ),
                 ),
             ]
         )
-    if not value.count("Profile"):
+
+    if not (value.count("Profile") or value.count("Average")):
         if name == "Vanna":
             y_title = " Exposure (delta / 1% IV move)"
             descript = stock + " IV Move, "
@@ -298,7 +321,7 @@ def update_live_chart(value, stock, expiration, is_iv):
             "Total "
             + name
             + ": $"
-            + str("{:,.2f}".format(df["Total" + name].sum() * factor))
+            + str("{:,.2f}".format(df[f"total_{name.lower()}"].sum() * factor))
             + num_type
             + descript
             + today_ddt_string,
@@ -307,9 +330,9 @@ def update_live_chart(value, stock, expiration, is_iv):
         fig.update_layout(  # bar chart layout
             title_text="<br>".join(split_title),
             title_x=0.5,
-            title_font_size=13,
+            title_font_size=12.5,
             title_xref="paper",
-            xaxis=({"title": ("Strike") if not name_date else "Date"}),
+            xaxis=({"title": ("Strike") if not date_condition else "Date"}),
             yaxis={"title": {"text": name + y_title}},
             showlegend=True,
             paper_bgcolor="#fff",
@@ -324,10 +347,11 @@ def update_live_chart(value, stock, expiration, is_iv):
                 bgcolor="rgba(0,0,0,0.05)",
                 font_size=10,
             ),
-            barmode="overlay",
+            barmode="relative",
+            template="seaborn",
             modebar_remove=["autoscale", "lasso2d"],
         )
-    if value.count("Profile"):
+    if value.count("Profile") or value.count("Average"):
         name = value.split()[0]
         if name == "Delta":
             y_title = " Exposure (price / 1% move)"
@@ -353,9 +377,9 @@ def update_live_chart(value, stock, expiration, is_iv):
             ex_fri = totalcharm_exfri
         fig = make_subplots(rows=1, cols=1)
         split_title = textwrap.wrap(
-            stock + " " + name + " Exposure Profile, " + today_ddt_string, width=50
+            f"{stock} {name} Exposure Profile, {today_ddt_string}", width=50
         )
-        if is_iv == 1:  # chart profiles normally
+        if not date_condition and name != "Implied":  # chart profiles
             fig.add_trace(go.Scatter(x=levels, y=all_ex, name="All Expiries"))
             fig.add_trace(go.Scatter(x=levels, y=ex_next, name="Next Expiry"))
             fig.add_trace(go.Scatter(x=levels, y=ex_fri, name="Next Monthly Expiry"))
@@ -437,15 +461,15 @@ def update_live_chart(value, stock, expiration, is_iv):
                     opacity=0.1,
                     line_width=0,
                 )
-        elif name == "Vanna" and is_iv == 2:
-            # in Vanna section, chart profiles that show call/put iv
+        elif name == "Implied":
+            # in IV section, chart call/put IV averages
             fig.add_trace(
                 go.Scatter(
                     x=strikes,
                     y=put_ivs * 100,
                     name="Put IV",
                     fill="tozeroy",
-                    line_color="indianred",
+                    line_color="#C44E52",
                 )
             )
 
@@ -458,19 +482,20 @@ def update_live_chart(value, stock, expiration, is_iv):
                     line_color="#32A3A3",
                 )
             )
+
             split_title = textwrap.wrap(
-                stock + " IV Profile, " + today_ddt_string, width=50
+                f"{stock} IV Average, {today_ddt_string}", width=50
             )
         fig.update_layout(  # scatter chart layout
             title_text="<br>".join(split_title),
             title_x=0.5,
-            title_font_size=13,
+            title_font_size=12.5,
             title_xref="paper",
-            xaxis=({"title": ("Strike") if not name_date else "Date"}),
+            xaxis=({"title": ("Strike") if not date_condition else "Date"}),
             yaxis={
                 "title": {
                     "text": (name + y_title)
-                    if is_iv == 1
+                    if not (date_condition or value.count("Average"))
                     else "Implied Volatility (IV) Average"
                 }
             },
@@ -487,6 +512,7 @@ def update_live_chart(value, stock, expiration, is_iv):
             ),
             paper_bgcolor="#fff",
             margin=dict(l=0, r=40),
+            template="seaborn",
             modebar_remove=["autoscale"],
         )
         fig.add_hline(
@@ -498,9 +524,12 @@ def update_live_chart(value, stock, expiration, is_iv):
         showgrid=True,
         minor=dict(ticklen=5, tickcolor="black", showgrid=True),
         range=(
-            [spotprice * 0.9, spotprice * 1.1]
-            if not value.count("By Date")
-            else [today_ddt, today_ddt + timedelta(days=31)]
+            [spot_price * 0.9, spot_price * 1.1]
+            if not date_condition
+            else [
+                today_ddt,
+                today_ddt + timedelta(days=31),
+            ]
         ),
         gridcolor="lightgray",
         gridwidth=1,
@@ -508,10 +537,12 @@ def update_live_chart(value, stock, expiration, is_iv):
             visible=True,
             range=(
                 [from_strike, to_strike]
-                if not value.count("By Date")
+                if not date_condition
                 else [
-                    exp_dates.min() if exp_dates.size != 0 else today_ddt,
-                    exp_dates.max() if exp_dates.size != 0 else today_ddt,
+                    exp_dates_x.min() if exp_dates_x.size != 0 else today_ddt,
+                    exp_dates_x.max()
+                    if exp_dates_x.size != 0
+                    else today_ddt + timedelta(days=31),
                 ]
             ),
         ),
@@ -523,20 +554,20 @@ def update_live_chart(value, stock, expiration, is_iv):
         gridcolor="lightgray",
         gridwidth=1,
     )
-    if not value.count("Date"):
+    if not date_condition:
         fig.add_vline(
-            x=spotprice,
+            x=spot_price,
             line_color="slategray",
             line_width=1,
             line_dash="dash",
             name=stock + " Spot",
-            annotation_text="Last: " + str("{:,.0f}".format(spotprice)),
+            annotation_text="Last: " + str("{:,.0f}".format(spot_price)),
             annotation_position="top",
         )
 
-    pagination_hidden = True
-    if value.count("Profile") and name == "Vanna":
-        pagination_hidden = False
+    pagination_hidden = False
+    if value.count("Profile"):
+        pagination_hidden = True
 
     # provide monthly option labels
     if len(monthly_options_dates) != 0:
@@ -556,7 +587,7 @@ def update_live_chart(value, stock, expiration, is_iv):
                 "value": "opex-btn",
             },
             {
-                "label": monthly_options_dates[2].strftime("%Y %B %d"),
+                "label": monthly_options_dates[0].strftime("%Y %B %d"),
                 "value": "0dte-btn",
             },
         ]
@@ -568,4 +599,5 @@ def update_live_chart(value, stock, expiration, is_iv):
 
 if __name__ == "__main__":
     cache.clear()
-    app.run(debug=False)
+    sensor_init()
+    app.run(debug=False, host="0.0.0.0", port="8050")

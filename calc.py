@@ -1,15 +1,16 @@
 import pandas as pd
 import pandas_market_calendars as mcal
 import numpy as np
+import orjson
 from scipy.stats import norm
 from yahooquery import Ticker
 from datetime import datetime, timedelta
 from pytz import timezone
 from dateparser.date import DateDataParser
-from os import getcwd
 from warnings import simplefilter
 from calendar import monthrange
 from cachetools import cached, TTLCache
+from pathlib import Path
 
 # Ignore warning for NaN values in dataframe
 simplefilter(action="ignore", category=RuntimeWarning)
@@ -19,59 +20,49 @@ pd.options.display.float_format = "{:,.4f}".format
 
 # Black-Scholes Pricing Formula
 # S is stock price, K is strike price
-def calcDeltaEx(S, K, vol, T, r, q, optType, OI):
+def calc_delta_ex(S, K, vol, T, r, q, opt_type, OI):
     dp = (np.log(S / K) + (r - q + 0.5 * vol**2) * T) / (vol * np.sqrt(T))
-    if optType == "call":
+    if opt_type == "call":
         delta = np.exp(-q * T) * norm.cdf(dp)
-        return OI * 100 * S * S * 0.01 * delta
-        # change in option price per one percent move in underlying
     else:
         delta = -np.exp(-q * T) * norm.cdf(-dp)
-        return OI * 100 * S * S * 0.01 * delta
+    # change in option price per one percent move in underlying
+    return OI * 100 * S * S * 0.01 * delta
 
 
-def calcGammaEx(S, K, vol, T, r, q, optType, OI):
+def calc_gamma_ex(S, K, vol, T, r, q, OI):
+    dp = (np.log(S / K) + (r - q + 0.5 * vol**2) * T) / (vol * np.sqrt(T))
+    gamma = np.exp(-q * T) * norm.pdf(dp) / (S * vol * np.sqrt(T))
+    # change in delta per one percent move in underlying
+    return OI * 100 * S * S * 0.01 * gamma  # Gamma is same formula for calls and puts
+
+
+def calc_vanna_ex(S, K, vol, T, r, q, OI):
     dp = (np.log(S / K) + (r - q + 0.5 * vol**2) * T) / (vol * np.sqrt(T))
     dm = dp - vol * np.sqrt(T)
-    if optType == "call":
-        gamma = K * np.exp(-r * T) * norm.pdf(dm) / (S * S * vol * np.sqrt(T))
-        return OI * 100 * S * S * 0.01 * gamma
-        # change in delta per one percent move in underlying
-    else:  # Gamma is same formula for calls and puts
-        gamma = K * np.exp(-r * T) * norm.pdf(dm) / (S * S * vol * np.sqrt(T))
-        return OI * 100 * S * S * 0.01 * gamma
+    vanna = -np.exp(-q * T) * norm.pdf(dp) * (dm / vol)
+    # change in delta per one percent move in IV
+    # or change in vega per one percent move in underlying
+    return OI * 100 * vol * vanna  # Vanna is same formula for calls and puts
 
 
-def calcVannaEx(S, K, vol, T, r, q, optType, OI):
+def calc_charm_ex(S, K, vol, T, r, q, opt_type, OI):
     dp = (np.log(S / K) + (r - q + 0.5 * vol**2) * T) / (vol * np.sqrt(T))
     dm = dp - vol * np.sqrt(T)
-    if optType == "call":
-        vanna = -np.exp(-q * T) * norm.pdf(dp) * (dm / vol)
-        # change in delta per one percent move in IV
-        # or change in vega per one percent move in underlying
-        return OI * 100 * vol * 100 * vanna
-    else:  # Vanna is same formula for calls and puts
-        vanna = -np.exp(-q * T) * norm.pdf(dp) * (dm / vol)
-        return OI * 100 * vol * 100 * vanna
-
-
-def calcCharmEx(S, K, vol, T, r, q, optType, OI):
-    dp = (np.log(S / K) + (r - q + 0.5 * vol**2) * T) / (vol * np.sqrt(T))
-    dm = dp - vol * np.sqrt(T)
-    if optType == "call":
+    if opt_type == "call":
         charm = (q * np.exp(-q * T) * norm.cdf(dp)) - np.exp(-q * T) * norm.pdf(dp) * (
             2 * (r - q) * T - dm * vol * np.sqrt(T)
         ) / (2 * T * vol * np.sqrt(T))
-        return OI * 100 * T * charm  # change in delta per day until expiration
     else:
         charm = (-q * np.exp(-q * T) * norm.cdf(-dp)) - np.exp(-q * T) * norm.pdf(
             dp
         ) * (2 * (r - q) * T - dm * vol * np.sqrt(T)) / (2 * T * vol * np.sqrt(T))
-        return OI * 100 * T * charm
+    # change in delta per day until expiration
+    return OI * 100 * T * charm
 
 
 @cached(cache=TTLCache(maxsize=16, ttl=60 * 60 * 4))  # in-memory cache for 4 hrs
-def isThirdFriday(date):
+def is_third_friday(date, tz):
     _, last = monthrange(date.year, date.month)
     first = datetime(date.year, date.month, 1)
     last = datetime(date.year, date.month, last)
@@ -81,37 +72,28 @@ def isThirdFriday(date):
     for i in result:
         if i.weekday() == 4 and 15 <= i.day <= 21 and i.month == date.month:
             # Third Friday
-            found[0] = timezone("America/New_York").localize(i) + timedelta(hours=16)
+            found[0] = timezone(tz).localize(i) + timedelta(hours=16)
         elif i.weekday() == 3 and 15 <= i.day <= 21 and i.month == date.month:
             # Thursday alternative
-            found[1] = timezone("America/New_York").localize(i) + timedelta(hours=16)
+            found[1] = timezone(tz).localize(i) + timedelta(hours=16)
     # returns Third Friday if market open,
     # else if market closed returns the Thursday before it
     return (found[0], result) if found[0] else (found[1], result)
 
 
-def isMarketOpen(date, calendar):
-    if date in calendar:
-        # market is open so return that date
-        return date
-    else:
-        # market is closed so look for when it is open
-        return isMarketOpen(date + timedelta(days=1), calendar)
-
-
 # check 10 yr treasury yield
 @cached(cache=TTLCache(maxsize=16, ttl=60 * 30))  # in-memory cache for 30 min
-def checkTenYr(date):
+def check_ten_yr(date):
     data = Ticker("^TNX").history(start=date - timedelta(days=5), end=date)
     if data.empty:
         # no data for the date range so look back further
-        return checkTenYr(date - timedelta(days=2))
+        return check_ten_yr(date - timedelta(days=2))
     else:
         # most recent date
         return data.tail(1)["close"].item() / 100
 
 
-def isParseable(date):
+def is_parsable(date):
     try:
         datetime.strptime(date.split()[-2], "%H:%M")
         return True
@@ -119,455 +101,672 @@ def isParseable(date):
         return False
 
 
-def getOptionsData(ticker, expir):
-    if expir != "all":
-        filename = getcwd() + "/data/monthly_exp/" + ticker + "_quotedata.csv"
-    else:
-        filename = getcwd() + "/data/all_exp/" + ticker + "_quotedata.csv"
-    # This assumes the CBOE file format hasn't been edited, i.e. table begins at line 4
-    optionsFile = open(filename, encoding="utf-8")
-    optionsFileData = optionsFile.readlines()
-    optionsFile.close()
-
-    # Error check if data unavailable
-    if len(optionsFileData) == 0 or optionsFileData[0] == "Unavailable":
-        print(ticker, expir, "data is unavailable")
-        return
-    # Get Spot
-    spotLine = optionsFileData[1]
-    spotPrice = float(spotLine.split("Last:")[1].split(",")[0])
-    fromStrike = 0.5 * spotPrice
-    toStrike = 1.5 * spotPrice
-    # Get Today's Date
-    dateLine = optionsFileData[2]
-    todayDate = dateLine.split("Date: ")[1].split(",Bid")[0]
-
-    # Handle date formats
-    if isParseable(todayDate):
-        pass
-    else:
-        tmp = todayDate.split()
-        tmp[-1], tmp[-2] = tmp[-2], tmp[-1]
-        todayDate = " ".join(tmp)
-    todayDate = DateDataParser(settings={"TIMEZONE": "America/New_York"}).get_date_data(
-        todayDate
-    )
-    today_ddt = todayDate.date_obj - timedelta(minutes=15)
-    today_ddt_string = today_ddt.strftime("%b %d, %Y, %I:%M %p %Z") + " (15min delay)"
-
-    df = pd.read_csv(filename, sep=",", header=None, skiprows=4)
-    df.columns = [
-        "ExpirationDate",
-        "Calls",
-        "CallLastSale",
-        "CallNet",
-        "CallBid",
-        "CallAsk",
-        "CallVol",
-        "CallIV",
-        "CallDelta",
-        "CallGamma",
-        "CallOpenInt",
-        "StrikePrice",
-        "Puts",
-        "PutLastSale",
-        "PutNet",
-        "PutBid",
-        "PutAsk",
-        "PutVol",
-        "PutIV",
-        "PutDelta",
-        "PutGamma",
-        "PutOpenInt",
-    ]
-
-    df["ExpirationDate"] = pd.to_datetime(
-        df["ExpirationDate"], format="%a %b %d %Y"
-    ).dt.tz_localize(todayDate.date_obj.tzinfo) + timedelta(hours=16)
-    df["StrikePrice"] = df["StrikePrice"].astype(float)
-    df["CallIV"] = df["CallIV"].astype(float)
-    df["PutIV"] = df["PutIV"].astype(float)
-    df["CallDelta"] = df["CallDelta"].astype(float)
-    df["PutDelta"] = df["PutDelta"].astype(float)
-    df["CallGamma"] = df["CallGamma"].astype(float)
-    df["PutGamma"] = df["PutGamma"].astype(float)
-    df["CallOpenInt"] = df["CallOpenInt"].astype(float)
-    df["PutOpenInt"] = df["PutOpenInt"].astype(float)
-
-    all_dates = df["ExpirationDate"].drop_duplicates()
-    firstExpiry = all_dates.iat[0]
-    if today_ddt > firstExpiry:
-        # first date expired so, if available, use next date as 0DTE
-        try:
-            firstExpiry = all_dates.iat[1]
-        except IndexError:
-            print("next date unavailable. using expired date")
-    thisMonthlyOpex, calendarRange = isThirdFriday(firstExpiry)
-
-    dividend_yield = 0  # assume 0
-    yield_10yr = checkTenYr(firstExpiry)
-
-    if expir != "all":
-        # month, monthly opex, 0DTE
-        monthly_options_dates = [
-            firstExpiry,
-            thisMonthlyOpex,
-            isMarketOpen(
-                datetime(firstExpiry.year, firstExpiry.month, firstExpiry.day),
-                calendarRange,
-            ),
+def format_data(data, today_ddt, tzinfo):
+    data = data.drop(
+        columns=[
+            "bid",
+            "bid_size",
+            "ask",
+            "ask_size",
+            "volume",
+            "theta",
+            "rho",
+            "vega",
+            "theo",
+            "change",
+            "open",
+            "high",
+            "low",
+            "tick",
+            "last_trade_price",
+            "last_trade_time",
+            "percent_change",
+            "prev_day_close",
         ]
+    )
+    data = pd.concat(
+        [
+            data.rename(
+                columns={
+                    "option": "calls",
+                    "iv": "call_iv",
+                    "open_interest": "call_open_int",
+                    "delta": "call_delta",
+                    "gamma": "call_gamma",
+                }
+            )
+            .iloc[0::2]
+            .reset_index(drop=True),
+            data.rename(
+                columns={
+                    "option": "puts",
+                    "iv": "put_iv",
+                    "open_interest": "put_open_int",
+                    "delta": "put_delta",
+                    "gamma": "put_gamma",
+                }
+            )
+            .iloc[1::2]
+            .reset_index(drop=True),
+        ],
+        axis=1,
+    )
+    data["strike_price"] = (
+        data["calls"].str.extract(r"\d[A-Z](\d+)\d\d\d").astype(float)
+    )
+    data["expiration_date"] = data["calls"].str.extract(r"[A-Z](\d+)")
+    data["expiration_date"] = pd.to_datetime(
+        data["expiration_date"], format="%y%m%d"
+    ).dt.tz_localize(tzinfo) + timedelta(hours=16)
+
+    busday_counts = np.busday_count(
+        today_ddt.date(),
+        data["expiration_date"].values.astype("datetime64[D]"),
+    )
+    # set DTE. 0DTE options are included in 1 day expirations
+    # time to expiration in years (252 trading days)
+    data["time_till_exp"] = np.where(busday_counts == 0, 1 / 252, busday_counts / 252)
+
+    data = data.sort_values(by=["expiration_date", "strike_price"]).reset_index(
+        drop=True
+    )
+
+    return data
+
+
+def calc_exposures(
+    option_data,
+    ticker,
+    expir,
+    first_expiry,
+    this_monthly_opex,
+    spot_price,
+    from_strike,
+    to_strike,
+    today_ddt,
+    today_ddt_string,
+):
+    dividend_yield = 0  # assume 0
+    yield_10yr = check_ten_yr(first_expiry)
+
+    if expir != "all":
+        monthly_options_dates = [first_expiry, this_monthly_opex]
     else:
         monthly_options_dates = []
 
-    if expir == "0dte":
-        df = df.loc[df["ExpirationDate"] == firstExpiry]
-    elif expir == "opex":
-        df = df.loc[df["ExpirationDate"] <= thisMonthlyOpex]
+    strike_prices = option_data["strike_price"].to_numpy()
+    expirations = option_data["expiration_date"].to_numpy()
+    days_till_exp = option_data["time_till_exp"].to_numpy()
+    opt_call_ivs = option_data["call_iv"].to_numpy()
+    opt_put_ivs = option_data["put_iv"].to_numpy()
+    call_open_interest = option_data["call_open_int"].to_numpy()
+    put_open_interest = option_data["put_open_int"].to_numpy()
 
-    # set DTE. 0DTE options are included in 1 day expiration
-    df["daysTillExp"] = [
-        1 / 252
-        if (np.busday_count(today_ddt.date(), x.date())) == 0
-        else np.busday_count(today_ddt.date(), x.date()) / 252
-        for x in df.ExpirationDate
-    ]
-
-    expirations = df["ExpirationDate"].to_numpy()
-
-    # parameters to reuse
-    params = np.vstack(
-        (
-            df["StrikePrice"].to_numpy(),
-            df["daysTillExp"].to_numpy(),
-            df["CallIV"].to_numpy(),
-            df["CallOpenInt"].to_numpy(),
-            df["PutIV"].to_numpy(),
-            df["PutOpenInt"].to_numpy(),
-        )
-    )
-    nonzero_call_cond = np.logical_and(params[1] > 0, params[2] > 0)
-    nonzero_put_cond = np.logical_and(params[1] > 0, params[4] > 0)
+    nonzero_call_cond = (days_till_exp > 0) & (opt_call_ivs > 0)
+    nonzero_put_cond = (days_till_exp > 0) & (opt_put_ivs > 0)
 
     # ---=== CALCULATE EXPOSURES ===---
-    df["CallDEX"] = (
-        df["CallDelta"].to_numpy() * params[3] * 100 * spotPrice * spotPrice * 0.01
+    option_data["call_dex"] = (
+        option_data["call_delta"].to_numpy()
+        * call_open_interest
+        * 100
+        * spot_price
+        * spot_price
+        * 0.01
     )
-    df["PutDEX"] = (
-        df["PutDelta"].to_numpy() * params[5] * 100 * spotPrice * spotPrice * 0.01
+    option_data["put_dex"] = (
+        option_data["put_delta"].to_numpy()
+        * put_open_interest
+        * 100
+        * spot_price
+        * spot_price
+        * 0.01
     )
-    df["CallGEX"] = (
-        df["CallGamma"].to_numpy() * params[3] * 100 * spotPrice * spotPrice * 0.01
+    option_data["call_gex"] = (
+        option_data["call_gamma"].to_numpy()
+        * call_open_interest
+        * 100
+        * spot_price
+        * spot_price
+        * 0.01
     )
-    df["PutGEX"] = (
-        df["PutGamma"].to_numpy() * params[5] * 100 * spotPrice * spotPrice * 0.01 * -1
+    option_data["put_gex"] = (
+        option_data["put_gamma"].to_numpy()
+        * put_open_interest
+        * 100
+        * spot_price
+        * spot_price
+        * 0.01
+        * -1
     )
-    df["CallVEX"] = np.where(
+    option_data["call_vex"] = np.where(
         nonzero_call_cond,
-        calcVannaEx(
-            spotPrice,
-            df["StrikePrice"].to_numpy(),
-            params[2],
-            params[1],
+        calc_vanna_ex(
+            spot_price,
+            strike_prices,
+            opt_call_ivs,
+            days_till_exp,
+            yield_10yr,
+            dividend_yield,
+            call_open_interest,
+        ),
+        0,
+    )
+    option_data["put_vex"] = np.where(
+        nonzero_put_cond,
+        calc_vanna_ex(
+            spot_price,
+            strike_prices,
+            opt_put_ivs,
+            days_till_exp,
+            yield_10yr,
+            dividend_yield,
+            put_open_interest,
+        ),
+        0,
+    )
+    option_data["call_cex"] = np.where(
+        nonzero_call_cond,
+        calc_charm_ex(
+            spot_price,
+            strike_prices,
+            opt_call_ivs,
+            days_till_exp,
             yield_10yr,
             dividend_yield,
             "call",
-            params[3],
+            call_open_interest,
         ),
         0,
     )
-    df["PutVEX"] = np.where(
+    option_data["put_cex"] = np.where(
         nonzero_put_cond,
-        calcVannaEx(
-            spotPrice,
-            df["StrikePrice"].to_numpy(),
-            params[4],
-            params[1],
+        calc_charm_ex(
+            spot_price,
+            strike_prices,
+            opt_put_ivs,
+            days_till_exp,
             yield_10yr,
             dividend_yield,
             "put",
-            params[5],
-        ),
-        0,
-    )
-    df["CallCEX"] = np.where(
-        nonzero_call_cond,
-        calcCharmEx(
-            spotPrice,
-            df["StrikePrice"].to_numpy(),
-            params[2],
-            params[1],
-            yield_10yr,
-            dividend_yield,
-            "call",
-            params[3],
-        ),
-        0,
-    )
-    df["PutCEX"] = np.where(
-        nonzero_put_cond,
-        calcCharmEx(
-            spotPrice,
-            df["StrikePrice"].to_numpy(),
-            params[4],
-            params[1],
-            yield_10yr,
-            dividend_yield,
-            "put",
-            params[5],
+            put_open_interest,
         ),
         0,
     )
     # Calculate total and scale down
-    df["TotalDelta"] = (df["CallDEX"].to_numpy() + df["PutDEX"].to_numpy()) / 10**11
-    df["TotalGamma"] = (df["CallGEX"].to_numpy() + df["PutGEX"].to_numpy()) / 10**9
-    df["TotalVanna"] = (df["CallVEX"].to_numpy() - df["PutVEX"].to_numpy()) / 10**9
-    df["TotalCharm"] = (df["CallCEX"].to_numpy() - df["PutCEX"].to_numpy()) / 10**9
+    option_data["total_delta"] = (
+        option_data["call_dex"].to_numpy() + option_data["put_dex"].to_numpy()
+    ) / 10**11
+    option_data["total_gamma"] = (
+        option_data["call_gex"].to_numpy() + option_data["put_gex"].to_numpy()
+    ) / 10**9
+    option_data["total_vanna"] = (
+        option_data["call_vex"].to_numpy() - option_data["put_vex"].to_numpy()
+    ) / 10**9
+    option_data["total_charm"] = (
+        option_data["call_cex"].to_numpy() - option_data["put_cex"].to_numpy()
+    ) / 10**9
 
     # group all options by strike / expiration then average their IVs
-    dfAgg_strike_mean = (
-        df[["StrikePrice", "CallIV", "PutIV"]]
-        .groupby(["StrikePrice"])
+    df_agg_strike_mean = (
+        option_data[["strike_price", "call_iv", "put_iv"]]
+        .groupby(["strike_price"])
         .mean(numeric_only=True)
     )
-    dfAgg_exp_mean = (
-        df[["ExpirationDate", "CallIV", "PutIV"]]
-        .groupby(["ExpirationDate"])
+    df_agg_exp_mean = (
+        option_data[["expiration_date", "call_iv", "put_iv"]]
+        .groupby(["expiration_date"])
         .mean(numeric_only=True)
     )
     # filter strikes / expirations for relevance
-    dfAgg_strike_mean = dfAgg_strike_mean.loc[fromStrike:toStrike]
-    dfAgg_exp_mean = dfAgg_exp_mean.loc[today_ddt : today_ddt + timedelta(weeks=26)]
+    df_agg_strike_mean = df_agg_strike_mean[from_strike:to_strike]
+    df_agg_exp_mean = df_agg_exp_mean[today_ddt : today_ddt + timedelta(weeks=26)]
 
-    call_ivs = dfAgg_strike_mean["CallIV"].to_numpy()
-    put_ivs = dfAgg_strike_mean["PutIV"].to_numpy()
-    call_ivs_exp = dfAgg_exp_mean["CallIV"].to_numpy()
-    put_ivs_exp = dfAgg_exp_mean["PutIV"].to_numpy()
+    call_ivs = df_agg_strike_mean["call_iv"].to_numpy()
+    put_ivs = df_agg_strike_mean["put_iv"].to_numpy()
+    call_ivs_exp = df_agg_exp_mean["call_iv"].to_numpy()
+    put_ivs_exp = df_agg_exp_mean["put_iv"].to_numpy()
 
     # ---=== CALCULATE EXPOSURE PROFILES ===---
-    levels = np.linspace(fromStrike, toStrike, 180).reshape(-1, 1)
-    totalDelta = np.array([])
-    totalDeltaExNext = np.array([])
-    totalDeltaExFri = np.array([])
-    totalGamma = np.array([])
-    totalGammaExNext = np.array([])
-    totalGammaExFri = np.array([])
-    totalVanna = np.array([])
-    totalVannaExNext = np.array([])
-    totalVannaExFri = np.array([])
-    totalCharm = np.array([])
-    totalCharmExNext = np.array([])
-    totalCharmExFri = np.array([])
+    levels = np.linspace(from_strike, to_strike, 180).reshape(-1, 1)
+    totaldelta = np.array([])
+    totaldelta_exnext = np.array([])
+    totaldelta_exfri = np.array([])
+    totalgamma = np.array([])
+    totalgamma_exnext = np.array([])
+    totalgamma_exfri = np.array([])
+    totalvanna = np.array([])
+    totalvanna_exnext = np.array([])
+    totalvanna_exfri = np.array([])
+    totalcharm = np.array([])
+    totalcharm_exnext = np.array([])
+    totalcharm_exfri = np.array([])
 
     # For each spot level, calculate greek exposure at that point
-    callDeltaEx = np.where(
+    call_delta_ex = np.where(
         nonzero_call_cond,
-        calcDeltaEx(
+        calc_delta_ex(
             levels,
-            params[0],
-            params[2],
-            params[1],
+            strike_prices,
+            opt_call_ivs,
+            days_till_exp,
             yield_10yr,
             dividend_yield,
             "call",
-            params[3],
+            call_open_interest,
         ),
         0,
     )
-    putDeltaEx = np.where(
+    put_delta_ex = np.where(
         nonzero_put_cond,
-        calcDeltaEx(
+        calc_delta_ex(
             levels,
-            params[0],
-            params[4],
-            params[1],
+            strike_prices,
+            opt_put_ivs,
+            days_till_exp,
             yield_10yr,
             dividend_yield,
             "put",
-            params[5],
+            put_open_interest,
         ),
         0,
     )
-    callGammaEx = np.where(
+    call_gamma_ex = np.where(
         nonzero_call_cond,
-        calcGammaEx(
+        calc_gamma_ex(
             levels,
-            params[0],
-            params[2],
-            params[1],
+            strike_prices,
+            opt_call_ivs,
+            days_till_exp,
+            yield_10yr,
+            dividend_yield,
+            call_open_interest,
+        ),
+        0,
+    )
+    put_gamma_ex = np.where(
+        nonzero_put_cond,
+        calc_gamma_ex(
+            levels,
+            strike_prices,
+            opt_put_ivs,
+            days_till_exp,
+            yield_10yr,
+            dividend_yield,
+            put_open_interest,
+        ),
+        0,
+    )
+    call_vanna_ex = np.where(
+        nonzero_call_cond,
+        calc_vanna_ex(
+            levels,
+            strike_prices,
+            opt_call_ivs,
+            days_till_exp,
+            yield_10yr,
+            dividend_yield,
+            call_open_interest,
+        ),
+        0,
+    )
+    put_vanna_ex = np.where(
+        nonzero_put_cond,
+        calc_vanna_ex(
+            levels,
+            strike_prices,
+            opt_put_ivs,
+            days_till_exp,
+            yield_10yr,
+            dividend_yield,
+            put_open_interest,
+        ),
+        0,
+    )
+    call_charm_ex = np.where(
+        nonzero_call_cond,
+        calc_charm_ex(
+            levels,
+            strike_prices,
+            opt_call_ivs,
+            days_till_exp,
             yield_10yr,
             dividend_yield,
             "call",
-            params[3],
+            call_open_interest,
         ),
         0,
     )
-    putGammaEx = np.where(
+    put_charm_ex = np.where(
         nonzero_put_cond,
-        calcGammaEx(
+        calc_charm_ex(
             levels,
-            params[0],
-            params[4],
-            params[1],
+            strike_prices,
+            opt_put_ivs,
+            days_till_exp,
             yield_10yr,
             dividend_yield,
             "put",
-            params[5],
-        ),
-        0,
-    )
-    callVannaEx = np.where(
-        nonzero_call_cond,
-        calcVannaEx(
-            levels,
-            params[0],
-            params[2],
-            params[1],
-            yield_10yr,
-            dividend_yield,
-            "call",
-            params[3],
-        ),
-        0,
-    )
-    putVannaEx = np.where(
-        nonzero_put_cond,
-        calcVannaEx(
-            levels,
-            params[0],
-            params[4],
-            params[1],
-            yield_10yr,
-            dividend_yield,
-            "put",
-            params[5],
-        ),
-        0,
-    )
-    callCharmEx = np.where(
-        nonzero_call_cond,
-        calcCharmEx(
-            levels,
-            params[0],
-            params[2],
-            params[1],
-            yield_10yr,
-            dividend_yield,
-            "call",
-            params[3],
-        ),
-        0,
-    )
-    putCharmEx = np.where(
-        nonzero_put_cond,
-        calcCharmEx(
-            levels,
-            params[0],
-            params[4],
-            params[1],
-            yield_10yr,
-            dividend_yield,
-            "put",
-            params[5],
+            put_open_interest,
         ),
         0,
     )
 
     # delta exposure
-    totalDelta = (callDeltaEx.sum(axis=1) + putDeltaEx.sum(axis=1)) / 10**11
+    totaldelta = (call_delta_ex.sum(axis=1) + put_delta_ex.sum(axis=1)) / 10**11
     # gamma exposure
-    totalGamma = (callGammaEx.sum(axis=1) - putGammaEx.sum(axis=1)) / 10**9
+    totalgamma = (call_gamma_ex.sum(axis=1) - put_gamma_ex.sum(axis=1)) / 10**9
     # vanna exposure
-    totalVanna = (callVannaEx.sum(axis=1) - putVannaEx.sum(axis=1)) / 10**9
+    totalvanna = (call_vanna_ex.sum(axis=1) - put_vanna_ex.sum(axis=1)) / 10**9
     # charm exposure
-    totalCharm = (callCharmEx.sum(axis=1) - putCharmEx.sum(axis=1)) / 10**9
+    totalcharm = (call_charm_ex.sum(axis=1) - put_charm_ex.sum(axis=1)) / 10**9
 
     if expir != "0dte":
         # exposure for next expiry
-        totalDeltaExNext = (
-            np.where(expirations != firstExpiry, callDeltaEx, 0).sum(axis=1)
-            + np.where(expirations != firstExpiry, putDeltaEx, 0).sum(axis=1)
+        totaldelta_exnext = (
+            np.where(expirations != first_expiry, call_delta_ex, 0).sum(axis=1)
+            + np.where(expirations != first_expiry, put_delta_ex, 0).sum(axis=1)
         ) / 10**11
-        totalGammaExNext = (
-            np.where(expirations != firstExpiry, callGammaEx, 0).sum(axis=1)
-            - np.where(expirations != firstExpiry, putGammaEx, 0).sum(axis=1)
+        totalgamma_exnext = (
+            np.where(expirations != first_expiry, call_gamma_ex, 0).sum(axis=1)
+            - np.where(expirations != first_expiry, put_gamma_ex, 0).sum(axis=1)
         ) / 10**9
-        totalVannaExNext = (
-            np.where(expirations != firstExpiry, callVannaEx, 0).sum(axis=1)
-            - np.where(expirations != firstExpiry, putVannaEx, 0).sum(axis=1)
+        totalvanna_exnext = (
+            np.where(expirations != first_expiry, call_vanna_ex, 0).sum(axis=1)
+            - np.where(expirations != first_expiry, put_vanna_ex, 0).sum(axis=1)
         ) / 10**9
-        totalCharmExNext = (
-            np.where(expirations != firstExpiry, callCharmEx, 0).sum(axis=1)
-            - np.where(expirations != firstExpiry, putCharmEx, 0).sum(axis=1)
+        totalcharm_exnext = (
+            np.where(expirations != first_expiry, call_charm_ex, 0).sum(axis=1)
+            - np.where(expirations != first_expiry, put_charm_ex, 0).sum(axis=1)
         ) / 10**9
         if expir == "all":
             # exposure for next monthly opex
-            totalDeltaExFri = (
-                np.where(expirations != thisMonthlyOpex, callDeltaEx, 0).sum(axis=1)
-                + np.where(expirations != thisMonthlyOpex, putDeltaEx, 0).sum(axis=1)
+            totaldelta_exfri = (
+                np.where(expirations != this_monthly_opex, call_delta_ex, 0).sum(axis=1)
+                + np.where(expirations != this_monthly_opex, put_delta_ex, 0).sum(
+                    axis=1
+                )
             ) / 10**11
-            totalGammaExFri = (
-                np.where(expirations != thisMonthlyOpex, callGammaEx, 0).sum(axis=1)
-                - np.where(expirations != thisMonthlyOpex, putGammaEx, 0).sum(axis=1)
+            totalgamma_exfri = (
+                np.where(expirations != this_monthly_opex, call_gamma_ex, 0).sum(axis=1)
+                - np.where(expirations != this_monthly_opex, put_gamma_ex, 0).sum(
+                    axis=1
+                )
             ) / 10**9
-            totalVannaExFri = (
-                np.where(expirations != thisMonthlyOpex, callVannaEx, 0).sum(axis=1)
-                - np.where(expirations != thisMonthlyOpex, putVannaEx, 0).sum(axis=1)
+            totalvanna_exfri = (
+                np.where(expirations != this_monthly_opex, call_vanna_ex, 0).sum(axis=1)
+                - np.where(expirations != this_monthly_opex, put_vanna_ex, 0).sum(
+                    axis=1
+                )
             ) / 10**9
-            totalCharmExFri = (
-                np.where(expirations != thisMonthlyOpex, callCharmEx, 0).sum(axis=1)
-                - np.where(expirations != thisMonthlyOpex, putCharmEx, 0).sum(axis=1)
+            totalcharm_exfri = (
+                np.where(expirations != this_monthly_opex, call_charm_ex, 0).sum(axis=1)
+                - np.where(expirations != this_monthly_opex, put_charm_ex, 0).sum(
+                    axis=1
+                )
             ) / 10**9
 
     # Find Delta Flip Point
-    zeroCrossIdx = np.where(np.diff(np.sign(totalDelta)))[0]
-    negDelta = totalDelta[zeroCrossIdx]
-    posDelta = totalDelta[zeroCrossIdx + 1]
-    negStrike = levels[zeroCrossIdx]
-    posStrike = levels[zeroCrossIdx + 1]
-    zeroDelta = posStrike - ((posStrike - negStrike) * posDelta / (posDelta - negDelta))
+    zero_cross_idx = np.where(np.diff(np.sign(totaldelta)))[0]
+    neg_delta = totaldelta[zero_cross_idx]
+    pos_delta = totaldelta[zero_cross_idx + 1]
+    neg_strike = levels[zero_cross_idx]
+    pos_strike = levels[zero_cross_idx + 1]
+    zerodelta = pos_strike - (
+        (pos_strike - neg_strike) * pos_delta / (pos_delta - neg_delta)
+    )
     # Find Gamma Flip Point
-    zeroCrossIdx = np.where(np.diff(np.sign(totalGamma)))[0]
-    negGamma = totalGamma[zeroCrossIdx]
-    posGamma = totalGamma[zeroCrossIdx + 1]
-    negStrike = levels[zeroCrossIdx]
-    posStrike = levels[zeroCrossIdx + 1]
-    zeroGamma = posStrike - ((posStrike - negStrike) * posGamma / (posGamma - negGamma))
+    zero_cross_idx = np.where(np.diff(np.sign(totalgamma)))[0]
+    negGamma = totalgamma[zero_cross_idx]
+    posGamma = totalgamma[zero_cross_idx + 1]
+    neg_strike = levels[zero_cross_idx]
+    pos_strike = levels[zero_cross_idx + 1]
+    zerogamma = pos_strike - (
+        (pos_strike - neg_strike) * posGamma / (posGamma - negGamma)
+    )
 
-    if zeroDelta.size > 0:
-        zeroDelta = zeroDelta[0][0]
+    if zerodelta.size > 0:
+        zerodelta = zerodelta[0][0]
     else:
-        print("delta flip not found for " + ticker + " " + expir)
-    if zeroGamma.size > 0:
-        zeroGamma = zeroGamma[0][0]
+        print("delta flip not found for", ticker, expir)
+    if zerogamma.size > 0:
+        zerogamma = zerogamma[0][0]
     else:
-        print("gamma flip not found for " + ticker + " " + expir)
+        print("gamma flip not found for", ticker, expir)
 
     return (
-        df,
+        option_data,
         today_ddt,
         today_ddt_string,
         monthly_options_dates,
-        spotPrice,
-        fromStrike,
-        toStrike,
+        spot_price,
+        from_strike,
+        to_strike,
         levels.ravel(),
-        totalDelta,
-        totalDeltaExNext,
-        totalDeltaExFri,
-        totalGamma,
-        totalGammaExNext,
-        totalGammaExFri,
-        totalVanna,
-        totalVannaExNext,
-        totalVannaExFri,
-        totalCharm,
-        totalCharmExNext,
-        totalCharmExFri,
-        zeroDelta,
-        zeroGamma,
+        totaldelta,
+        totaldelta_exnext,
+        totaldelta_exfri,
+        totalgamma,
+        totalgamma_exnext,
+        totalgamma_exfri,
+        totalvanna,
+        totalvanna_exnext,
+        totalvanna_exfri,
+        totalcharm,
+        totalcharm_exnext,
+        totalcharm_exfri,
+        zerodelta,
+        zerogamma,
         call_ivs,
         put_ivs,
         call_ivs_exp,
         put_ivs_exp,
+    )
+
+
+def get_options_data_json(ticker, expir, tz):
+    try:
+        # CBOE file format, json
+        with open(
+            Path(f"data/json/{ticker}_quotedata.json"), encoding="utf-8"
+        ) as json_file:
+            json_data = json_file.read()
+        data = pd.json_normalize(orjson.loads(json_data))
+    except orjson.JSONDecodeError as e:  # handle error if data unavailable
+        print(f"{e}, {ticker} {expir} data is unavailable")
+        return
+
+    # Get Spot
+    spot_price = data["data.current_price"][0].astype(float)
+    from_strike = 0.5 * spot_price
+    to_strike = 1.5 * spot_price
+
+    # Get Today's Date
+    today_date = DateDataParser(
+        settings={
+            "TIMEZONE": "UTC",
+            "TO_TIMEZONE": tz,
+            "RETURN_AS_TIMEZONE_AWARE": True,
+        }
+    ).get_date_data(str(data["timestamp"][0]))
+    # Handle date formats
+    today_ddt = today_date.date_obj - timedelta(minutes=15)
+    today_ddt_string = today_ddt.strftime("%b %d, %Y, %I:%M %p %Z") + " (15min delay)"
+
+    option_data = format_data(
+        pd.DataFrame(data["data.options"][0]),
+        today_ddt,
+        today_date.date_obj.tzinfo,
+    )
+
+    all_dates = option_data["expiration_date"].drop_duplicates()
+    first_expiry = all_dates.iat[0]
+    if today_ddt > first_expiry:
+        # first date expired so, if available, use next date as 0DTE
+        try:
+            first_expiry = all_dates.iat[1]
+        except IndexError:
+            print("next date unavailable. using expired date")
+
+    this_monthly_opex, calendar_range = is_third_friday(first_expiry, tz)
+
+    if expir == "monthly":
+        option_data = option_data[
+            option_data["expiration_date"]
+            <= timezone(tz).localize(calendar_range[-1]) + timedelta(hours=16)
+        ]
+    elif expir == "0dte":
+        option_data = option_data[option_data["expiration_date"] == first_expiry]
+    elif expir == "opex":
+        option_data = option_data[option_data["expiration_date"] <= this_monthly_opex]
+
+    return calc_exposures(
+        option_data,
+        ticker,
+        expir,
+        first_expiry,
+        this_monthly_opex,
+        spot_price,
+        from_strike,
+        to_strike,
+        today_ddt,
+        today_ddt_string,
+    )
+
+
+def get_options_data_csv(ticker, expir, tz):
+    try:
+        # CBOE file format, csv
+        with open(
+            Path(f"data/csv/{ticker}_quotedata.csv"), encoding="utf-8"
+        ) as csv_file:
+            next(csv_file)  # skip first line
+            spot_line = csv_file.readline()
+            date_line = csv_file.readline()
+            # Option data starts at line 4
+            option_data = pd.read_csv(
+                csv_file,
+                header=0,
+                names=[
+                    "expiration_date",
+                    "calls",
+                    "call_last_sale",
+                    "call_net",
+                    "call_bid",
+                    "call_ask",
+                    "call_vol",
+                    "call_iv",
+                    "call_delta",
+                    "call_gamma",
+                    "call_open_int",
+                    "strike_price",
+                    "puts",
+                    "put_last_sale",
+                    "put_net",
+                    "put_bid",
+                    "put_ask",
+                    "put_vol",
+                    "put_iv",
+                    "put_delta",
+                    "put_gamma",
+                    "put_open_int",
+                ],
+                usecols=lambda x: x
+                not in [
+                    "call_last_sale",
+                    "call_net",
+                    "call_bid",
+                    "call_ask",
+                    "call_vol",
+                    "put_last_sale",
+                    "put_net",
+                    "put_bid",
+                    "put_ask",
+                    "put_vol",
+                ],
+            )
+    except:  # handle error if data unavailable
+        print(ticker, expir, "data is unavailable")
+        return
+
+    # Get Spot
+    spot_price = float(spot_line.split("Last:")[1].split(",")[0])
+    from_strike = 0.5 * spot_price
+    to_strike = 1.5 * spot_price
+    # Get Today's Date
+    today_date = date_line.split("Date: ")[1].split(",Bid")[0]
+
+    # Handle date formats
+    if is_parsable(today_date):
+        pass
+    else:
+        tmp = today_date.split()
+        tmp[-1], tmp[-2] = tmp[-2], tmp[-1]
+        today_date = " ".join(tmp)
+    today_date = DateDataParser(settings={"TIMEZONE": tz}).get_date_data(today_date)
+    today_ddt = today_date.date_obj - timedelta(minutes=15)
+    today_ddt_string = today_ddt.strftime("%b %d, %Y, %I:%M %p %Z") + " (15min delay)"
+
+    option_data["expiration_date"] = pd.to_datetime(
+        option_data["expiration_date"], format="%a %b %d %Y"
+    ).dt.tz_localize(today_date.date_obj.tzinfo) + timedelta(hours=16)
+    option_data["strike_price"] = option_data["strike_price"].astype(float)
+    option_data["call_iv"] = option_data["call_iv"].astype(float)
+    option_data["put_iv"] = option_data["put_iv"].astype(float)
+    option_data["call_delta"] = option_data["call_delta"].astype(float)
+    option_data["put_delta"] = option_data["put_delta"].astype(float)
+    option_data["call_gamma"] = option_data["call_gamma"].astype(float)
+    option_data["put_gamma"] = option_data["put_gamma"].astype(float)
+    option_data["call_open_int"] = option_data["call_open_int"].astype(float)
+    option_data["put_open_int"] = option_data["put_open_int"].astype(float)
+
+    all_dates = option_data["expiration_date"].drop_duplicates()
+    first_expiry = all_dates.iat[0]
+    if today_ddt > first_expiry:
+        # first date expired so, if available, use next date as 0DTE
+        try:
+            first_expiry = all_dates.iat[1]
+        except IndexError:
+            print("next date unavailable. using expired date")
+    this_monthly_opex, calendar_range = is_third_friday(first_expiry, tz)
+
+    busday_counts = np.busday_count(
+        today_ddt.date(),
+        option_data["expiration_date"].values.astype("datetime64[D]"),
+    )
+    # set DTE. 0DTE options are included in 1 day expirations
+    # time to expiration in years (252 trading days)
+    option_data["time_till_exp"] = np.where(
+        busday_counts == 0, 1 / 252, busday_counts / 252
+    )
+
+    if expir == "monthly":
+        option_data = option_data[
+            option_data["expiration_date"]
+            <= timezone(tz).localize(calendar_range[-1]) + timedelta(hours=16)
+        ]
+    elif expir == "0dte":
+        option_data = option_data[option_data["expiration_date"] == first_expiry]
+    elif expir == "opex":
+        option_data = option_data[option_data["expiration_date"] <= this_monthly_opex]
+
+    return calc_exposures(
+        option_data,
+        ticker,
+        expir,
+        first_expiry,
+        this_monthly_opex,
+        spot_price,
+        from_strike,
+        to_strike,
+        today_ddt,
+        today_ddt_string,
+    )
+
+
+def get_options_data(ticker, expir, is_json, tz):
+    return (
+        get_options_data_json(ticker, expir, tz)
+        if is_json
+        else get_options_data_csv(ticker, expir, tz)
     )

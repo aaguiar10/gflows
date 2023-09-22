@@ -68,6 +68,7 @@
     transform: scaleX(0);
     transform-origin: center left;
     animation: var(--animation-timing-function) var(--animation-duration) infinite line-1-horizontal-animation;
+    display: block !important;
   }
   
   @keyframes line-1-horizontal-animation {

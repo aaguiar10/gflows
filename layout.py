@@ -1,8 +1,12 @@
 from dash import html, dcc
 import dash_bootstrap_components as dbc
+from yahooquery import Ticker
+from os import environ
 
 
 def serve_layout():
+    tickers = environ.get("TICKERS", "^SPX,^NDX,^RUT").split(",")
+    ticker_info = Ticker(tickers).quote_type
     return dbc.Container(
         [
             dbc.Row(
@@ -48,20 +52,13 @@ def serve_layout():
             dbc.Row(
                 dbc.Tabs(
                     id="tabs",
-                    active_tab="spx",
+                    active_tab=tickers[0],
                     children=[
                         dbc.Tab(
-                            label="S&P 500 (SPX) Index",
-                            tab_id="spx",
-                        ),
-                        dbc.Tab(
-                            label="NASDAQ 100 (NDX) Index",
-                            tab_id="ndx",
-                        ),
-                        dbc.Tab(
-                            label="RUSSELL 2000 (RUT) Index",
-                            tab_id="rut",
-                        ),
+                            label=ticker_info[ticker]["longName"],
+                            tab_id=ticker,
+                        )
+                        for ticker in tickers
                     ],
                     class_name="fs-5 p-0 nav-fill",
                 )
@@ -189,7 +186,6 @@ def serve_layout():
                         class_name="d-flex justify-content-end mt-2 mb-0 me-1",
                     ),
                     id="pagination-div",
-                    hidden=True,
                 )
             ),
             dcc.Loading(
