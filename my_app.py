@@ -39,33 +39,6 @@ cache = Cache(
 )
 
 
-# download data at start
-def sensor_init():
-    # respond to prompt if env variable not set
-    response = environ.get("AUTO_RESPONSE") or input("\nDownload recent data? (y/n): ")
-    if response.lower() == "y":
-        dwn_data()
-        cache.delete_memoized(analyze_data)
-    else:
-        print("\nUsing existing data...\n")
-
-
-def sensor():
-    dwn_data()
-    cache.delete_memoized(analyze_data)
-
-
-# schedule when to redownload data
-sched = BackgroundScheduler(daemon=True)
-sched.add_job(
-    sensor,
-    CronTrigger.from_crontab(
-        "0,30 9-16 * * 0-4", timezone=timezone("America/New_York")
-    ),
-)
-sched.start()
-
-
 @cache.memoize(timeout=60 * 30)  # cache charts for 30 min
 def analyze_data(ticker, expir):
     # Analyze stored data of specified ticker and expiry
@@ -79,6 +52,35 @@ def analyze_data(ticker, expir):
     if result == None:
         return (None,) * 26
     return result
+
+
+def sensor():
+    dwn_data()
+    cache.delete_memoized(analyze_data)
+
+
+cache.clear()
+# respond to prompt if env variable not set
+response = environ.get("AUTO_RESPONSE")
+if not response:
+    try:
+        response = input("\nDownload recent data? (y/n): ")
+    except EOFError:
+        response = "n"
+if response.lower() == "y":  # download data at start
+    sensor()
+else:
+    print("\nUsing existing data...\n")
+
+# schedule when to redownload data
+sched = BackgroundScheduler(daemon=True)
+sched.add_job(
+    sensor,
+    CronTrigger.from_crontab(
+        "0,30 9-16 * * 0-4", timezone=timezone("America/New_York")
+    ),
+)
+sched.start()
 
 
 @app.callback(  # handle selected expiration
@@ -182,7 +184,7 @@ def on_click(btn1, btn2, btn3, btn4):
     Input("pagination", "active_page"),
 )
 def update_live_chart(value, stock, expiration, active_page):
-    stock = f"{stock[1:].upper()}" if stock[0] == "^" else stock.upper()
+    stock = f"{stock[1:]}" if stock[0] == "^" else stock
     (
         df,
         today_ddt,
@@ -210,7 +212,7 @@ def update_live_chart(value, stock, expiration, active_page):
         put_ivs,
         call_ivs_exp,
         put_ivs_exp,
-    ) = analyze_data(stock, expiration)
+    ) = analyze_data(stock.lower(), expiration)
     if df is None:
         return (
             go.Figure(
@@ -598,6 +600,4 @@ def update_live_chart(value, stock, expiration, active_page):
 
 
 if __name__ == "__main__":
-    cache.clear()
-    sensor_init()
     app.run(debug=False, host="0.0.0.0", port="8050")
