@@ -3,7 +3,7 @@ import base64
 import orjson
 from multiprocessing.dummy import Pool as ThreadPool
 from datetime import datetime
-from os import environ
+from os import environ, getcwd
 from pathlib import Path
 
 
@@ -18,9 +18,9 @@ def fulfill_req(ticker, expiry):
     ticker = ticker.lower() if ticker[0] != "_" else ticker[1:].lower()
     for _ in range(3):  # in case of unavailable data, retry twice
         filename = (
-            Path(f"data/json/{ticker}_quotedata.json")
+            Path(f"{getcwd()}/data/json/{ticker}_quotedata.json")
             if not is_custom
-            else Path(f"data/csv/{ticker}_quotedata.csv")
+            else Path(f"{getcwd()}/data/csv/{ticker}_quotedata.csv")
         )
         with open(filename, "wb") as f, requests.get(
             api_url,

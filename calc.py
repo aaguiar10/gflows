@@ -11,6 +11,7 @@ from warnings import simplefilter
 from calendar import monthrange
 from cachetools import cached, TTLCache
 from pathlib import Path
+from os import getcwd
 
 # Ignore warning for NaN values in dataframe
 simplefilter(action="ignore", category=RuntimeWarning)
@@ -568,7 +569,7 @@ def get_options_data_json(ticker, expir, tz):
     try:
         # CBOE file format, json
         with open(
-            Path(f"data/json/{ticker}_quotedata.json"), encoding="utf-8"
+            Path(f"{getcwd()}/data/json/{ticker}_quotedata.json"), encoding="utf-8"
         ) as json_file:
             json_data = json_file.read()
         data = pd.json_normalize(orjson.loads(json_data))
@@ -638,7 +639,7 @@ def get_options_data_csv(ticker, expir, tz):
     try:
         # CBOE file format, csv
         with open(
-            Path(f"data/csv/{ticker}_quotedata.csv"), encoding="utf-8"
+            Path(f"{getcwd()}/data/csv/{ticker}_quotedata.csv"), encoding="utf-8"
         ) as csv_file:
             next(csv_file)  # skip first line
             spot_line = csv_file.readline()
