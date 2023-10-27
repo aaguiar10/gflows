@@ -550,14 +550,7 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
         ),
         gridcolor="lightgray",
         gridwidth=1,
-        rangeslider=dict(
-            visible=True,
-            range=(
-                [from_strike, to_strike]
-                if not date_condition
-                else [exp_dates_x.min(), exp_dates_x.max()]
-            ),
-        ),
+        rangeslider=dict(visible=True),
     )
     fig.update_yaxes(
         showgrid=True,
