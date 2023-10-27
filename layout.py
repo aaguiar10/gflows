@@ -1,12 +1,18 @@
 from dash import html, dcc
 import dash_bootstrap_components as dbc
-from yahooquery import Ticker
+from yahooquery import search
 from os import environ
+from multiprocessing.dummy import Pool as ThreadPool
+from functools import partial
 
 
 def serve_layout():
+    pool = ThreadPool()
     tickers = environ.get("TICKERS", "^SPX,^NDX,^RUT").split(",")
-    ticker_info = Ticker(tickers).quote_type
+    search_tickers = partial(search, first_quote=True)
+    ticker_info = pool.map(search_tickers, tickers)
+    pool.close()
+    pool.join()
     return dbc.Container(
         [
             dbc.Row(
@@ -30,7 +36,7 @@ def serve_layout():
                                 can affect option prices. ",
                                 html.Br(),
                                 html.Span(
-                                    "Monday-Friday: 30-minute updates from 9:00am-4:30pm ET (CBOE delayed data)",
+                                    "Monday-Friday: 15-minute updates from 9:00am-4:30pm ET (CBOE delayed data)",
                                     className="fst-italic",
                                 ),
                             ]
@@ -49,16 +55,20 @@ def serve_layout():
                     className="m-auto d-flex justify-content-center",
                 )
             ),
+            dcc.Interval(
+                id="interval", interval=1000 * 60 * 1, n_intervals=0
+            ),  # every minute, check if chart should be refreshed
+            dcc.Store(id="sensor", storage_type="memory", data=False),
             dbc.Row(
                 dbc.Tabs(
                     id="tabs",
                     active_tab=tickers[0],
                     children=[
                         dbc.Tab(
-                            label=ticker_info[ticker]["longName"],
+                            label=ticker_info[i]["longname"],
                             tab_id=ticker,
                         )
-                        for ticker in tickers
+                        for i, ticker in enumerate(tickers)
                     ],
                     class_name="fs-5 p-0 nav-fill",
                 )

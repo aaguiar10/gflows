@@ -1,6 +1,6 @@
 # G|Flows
 
-G|Flows, or Greek Flows, provides 30-minute updates for the SPX, NDX, and RUT indexes every Monday-Friday from 9:00am-4:30pm ET.
+G|Flows, or Greek Flows, provides 15-minute updates for the SPX, NDX, and RUT indexes every Monday-Friday from 9:00am-4:30pm ET.
 
 ## Features
 
@@ -58,7 +58,13 @@ sched = BackgroundScheduler(daemon=True)
 sched.add_job(
     sensor,
     CronTrigger.from_crontab(
-        "0,30 9-16 * * 0-4", timezone=timezone("America/New_York")
+        "0,15,30,45 9-15 * * 0-4", timezone=timezone("America/New_York")
+    ),
+)
+sched.add_job(
+    sensor,
+    CronTrigger.from_crontab(
+        "0,15,30 16 * * 0-4", timezone=timezone("America/New_York")
     ),
 )
 sched.start()
@@ -74,7 +80,7 @@ def analyze_data(ticker, expir):
     result = get_options_data(
         ticker,
         expir,
-        is_json=True, # False for CSV
+        is_json=True,  # False for CSV
         tz="America/New_York",
     )
     ...

@@ -24,9 +24,9 @@ app = Dash(
     meta_tags=[
         {"name": "viewport", "content": "width=device-width, initial-scale=1"},
     ],
+    title="G|Flows",
 )
 server = app.server
-app.title = "G|Flows"
 app.layout = serve_layout
 
 cache = Cache(
@@ -38,8 +38,10 @@ cache = Cache(
     },
 )
 
+cache.clear()
 
-@cache.memoize(timeout=60 * 30)  # cache charts for 30 min
+
+@cache.memoize(timeout=60 * 15)  # cache charts for 15 min
 def analyze_data(ticker, expir):
     # Analyze stored data of specified ticker and expiry
     # defaults: json format, timezone 'America/New_York'
@@ -55,11 +57,12 @@ def analyze_data(ticker, expir):
 
 
 def sensor():
-    dwn_data()
+    # default: json format
+    dwn_data(is_json=True)  # False for CSV
+    cache.delete("cached_data")
     cache.delete_memoized(analyze_data)
 
 
-cache.clear()
 # respond to prompt if env variable not set
 response = environ.get("AUTO_RESPONSE")
 if not response:
@@ -77,7 +80,13 @@ sched = BackgroundScheduler(daemon=True)
 sched.add_job(
     sensor,
     CronTrigger.from_crontab(
-        "0,30 9-16 * * 0-4", timezone=timezone("America/New_York")
+        "0,15,30,45 9-15 * * 0-4", timezone=timezone("America/New_York")
+    ),
+)
+sched.add_job(
+    sensor,
+    CronTrigger.from_crontab(
+        "0,15,30 16 * * 0-4", timezone=timezone("America/New_York")
     ),
 )
 sched.start()
@@ -174,6 +183,14 @@ def on_click(btn1, btn2, btn3, btn4):
     return is_active1, is_active2, is_active3, is_active4, page, options, value
 
 
+@app.callback(
+    Output("sensor", "data"),
+    Input("interval", "n_intervals"),
+)
+def check_cache_key(n_intervals):
+    return (not cache.has("cached_data")) or no_update
+
+
 @app.callback(  # handle chart display based on inputs
     Output("live-chart", "figure"),
     Output("pagination-div", "hidden"),
@@ -182,8 +199,9 @@ def on_click(btn1, btn2, btn3, btn4):
     Input("tabs", "active_tab"),
     Input("exp-value", "data"),
     Input("pagination", "active_page"),
+    Input("sensor", "data"),
 )
-def update_live_chart(value, stock, expiration, active_page):
+def update_live_chart(value, stock, expiration, active_page, refresh):
     stock = f"{stock[1:]}" if stock[0] == "^" else stock
     (
         df,
@@ -213,6 +231,7 @@ def update_live_chart(value, stock, expiration, active_page):
         call_ivs_exp,
         put_ivs_exp,
     ) = analyze_data(stock.lower(), expiration)
+    cache.set("cached_data", True)
     if df is None:
         return (
             go.Figure(
@@ -255,14 +274,10 @@ def update_live_chart(value, stock, expiration, active_page):
     name = value.split()[1]
     num_type = " per 1% "
     scale = 10**9
-    factor = 10**9
-    if name == "Delta":
-        scale = 10**11
-        factor = 10**11
-    elif name == "Charm":
+    if name == "Charm":
         num_type = " a day "
 
-    date_condition = active_page == 2 and not value.count("Profile")
+    date_condition = active_page == 2 and not "Profile" in value
 
     if date_condition:  # use dates
         strikes = exp_dates_x
@@ -271,7 +286,7 @@ def update_live_chart(value, stock, expiration, active_page):
         put_ivs = put_ivs_exp
         df_agg = exp_dates
 
-    if (not value.count("Calls/Puts")) and value.count("Absolute"):
+    if (not "Calls/Puts" in value) and "Absolute" in value:
         fig = go.Figure(
             data=[
                 go.Bar(
@@ -284,7 +299,7 @@ def update_live_chart(value, stock, expiration, active_page):
                 )
             ]
         )
-    elif value.count("Calls/Puts"):
+    elif "Calls/Puts" in value:
         fig = go.Figure(
             data=[
                 go.Bar(
@@ -306,7 +321,7 @@ def update_live_chart(value, stock, expiration, active_page):
             ]
         )
 
-    if not (value.count("Profile") or value.count("Average")):
+    if not ("Profile" in value or "Average" in value):
         if name == "Vanna":
             y_title = " Exposure (delta / 1% IV move)"
             descript = stock + " IV Move, "
@@ -323,7 +338,7 @@ def update_live_chart(value, stock, expiration, active_page):
             "Total "
             + name
             + ": $"
-            + str("{:,.2f}".format(df[f"total_{name.lower()}"].sum() * factor))
+            + str("{:,.2f}".format(df[f"total_{name.lower()}"].sum() * scale))
             + num_type
             + descript
             + today_ddt_string,
@@ -353,7 +368,7 @@ def update_live_chart(value, stock, expiration, active_page):
             template="seaborn",
             modebar_remove=["autoscale", "lasso2d"],
         )
-    if value.count("Profile") or value.count("Average"):
+    if "Profile" in value or "Average" in value:
         name = value.split()[0]
         if name == "Delta":
             y_title = " Exposure (price / 1% move)"
@@ -497,7 +512,7 @@ def update_live_chart(value, stock, expiration, active_page):
             yaxis={
                 "title": {
                     "text": (name + y_title)
-                    if not (date_condition or value.count("Average"))
+                    if not (date_condition or "Average" in value)
                     else "Implied Volatility (IV) Average"
                 }
             },
@@ -540,12 +555,7 @@ def update_live_chart(value, stock, expiration, active_page):
             range=(
                 [from_strike, to_strike]
                 if not date_condition
-                else [
-                    exp_dates_x.min() if exp_dates_x.size != 0 else today_ddt,
-                    exp_dates_x.max()
-                    if exp_dates_x.size != 0
-                    else today_ddt + timedelta(days=31),
-                ]
+                else [exp_dates_x.min(), exp_dates_x.max()]
             ),
         ),
     )
@@ -563,13 +573,11 @@ def update_live_chart(value, stock, expiration, active_page):
             line_width=1,
             line_dash="dash",
             name=stock + " Spot",
-            annotation_text="Last: " + str("{:,.0f}".format(spot_price)),
+            annotation_text="Last: " + str("{:,.2f}".format(spot_price)),
             annotation_position="top",
         )
 
-    pagination_hidden = False
-    if value.count("Profile"):
-        pagination_hidden = True
+    pagination_hidden = "Profile" in value
 
     # provide monthly option labels
     if len(monthly_options_dates) != 0:

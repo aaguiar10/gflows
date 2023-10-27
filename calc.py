@@ -28,14 +28,14 @@ def calc_delta_ex(S, K, vol, T, r, q, opt_type, OI):
     else:
         delta = -np.exp(-q * T) * norm.cdf(-dp)
     # change in option price per one percent move in underlying
-    return OI * 100 * S * S * 0.01 * delta
+    return delta * OI * S
 
 
 def calc_gamma_ex(S, K, vol, T, r, q, OI):
     dp = (np.log(S / K) + (r - q + 0.5 * vol**2) * T) / (vol * np.sqrt(T))
     gamma = np.exp(-q * T) * norm.pdf(dp) / (S * vol * np.sqrt(T))
     # change in delta per one percent move in underlying
-    return OI * 100 * S * S * 0.01 * gamma  # Gamma is same formula for calls and puts
+    return gamma * OI * S * S  # Gamma is same formula for calls and puts
 
 
 def calc_vanna_ex(S, K, vol, T, r, q, OI):
@@ -44,7 +44,7 @@ def calc_vanna_ex(S, K, vol, T, r, q, OI):
     vanna = -np.exp(-q * T) * norm.pdf(dp) * (dm / vol)
     # change in delta per one percent move in IV
     # or change in vega per one percent move in underlying
-    return OI * 100 * vol * vanna  # Vanna is same formula for calls and puts
+    return vanna * OI * S * vol  # Vanna is same formula for calls and puts
 
 
 def calc_charm_ex(S, K, vol, T, r, q, opt_type, OI):
@@ -59,7 +59,7 @@ def calc_charm_ex(S, K, vol, T, r, q, opt_type, OI):
             dp
         ) * (2 * (r - q) * T - dm * vol * np.sqrt(T)) / (2 * T * vol * np.sqrt(T))
     # change in delta per day until expiration
-    return OI * 100 * T * charm
+    return charm * OI * S * T
 
 
 @cached(cache=TTLCache(maxsize=16, ttl=60 * 60 * 4))  # in-memory cache for 4 hrs
@@ -83,7 +83,7 @@ def is_third_friday(date, tz):
 
 
 # check 10 yr treasury yield
-@cached(cache=TTLCache(maxsize=16, ttl=60 * 30))  # in-memory cache for 30 min
+@cached(cache=TTLCache(maxsize=16, ttl=60 * 15))  # in-memory cache for 15 min
 def check_ten_yr(date):
     data = Ticker("^TNX").history(start=date - timedelta(days=5), end=date)
     if data.empty:
@@ -208,36 +208,22 @@ def calc_exposures(
 
     # ---=== CALCULATE EXPOSURES ===---
     option_data["call_dex"] = (
-        option_data["call_delta"].to_numpy()
-        * call_open_interest
-        * 100
-        * spot_price
-        * spot_price
-        * 0.01
+        option_data["call_delta"].to_numpy() * call_open_interest * spot_price
     )
     option_data["put_dex"] = (
-        option_data["put_delta"].to_numpy()
-        * put_open_interest
-        * 100
-        * spot_price
-        * spot_price
-        * 0.01
+        option_data["put_delta"].to_numpy() * put_open_interest * spot_price
     )
     option_data["call_gex"] = (
         option_data["call_gamma"].to_numpy()
         * call_open_interest
-        * 100
         * spot_price
         * spot_price
-        * 0.01
     )
     option_data["put_gex"] = (
         option_data["put_gamma"].to_numpy()
         * put_open_interest
-        * 100
         * spot_price
         * spot_price
-        * 0.01
         * -1
     )
     option_data["call_vex"] = np.where(
@@ -297,7 +283,7 @@ def calc_exposures(
     # Calculate total and scale down
     option_data["total_delta"] = (
         option_data["call_dex"].to_numpy() + option_data["put_dex"].to_numpy()
-    ) / 10**11
+    ) / 10**9
     option_data["total_gamma"] = (
         option_data["call_gex"].to_numpy() + option_data["put_gex"].to_numpy()
     ) / 10**9
@@ -454,7 +440,7 @@ def calc_exposures(
     )
 
     # delta exposure
-    totaldelta = (call_delta_ex.sum(axis=1) + put_delta_ex.sum(axis=1)) / 10**11
+    totaldelta = (call_delta_ex.sum(axis=1) + put_delta_ex.sum(axis=1)) / 10**9
     # gamma exposure
     totalgamma = (call_gamma_ex.sum(axis=1) - put_gamma_ex.sum(axis=1)) / 10**9
     # vanna exposure
@@ -467,7 +453,7 @@ def calc_exposures(
         totaldelta_exnext = (
             np.where(expirations != first_expiry, call_delta_ex, 0).sum(axis=1)
             + np.where(expirations != first_expiry, put_delta_ex, 0).sum(axis=1)
-        ) / 10**11
+        ) / 10**9
         totalgamma_exnext = (
             np.where(expirations != first_expiry, call_gamma_ex, 0).sum(axis=1)
             - np.where(expirations != first_expiry, put_gamma_ex, 0).sum(axis=1)
@@ -487,7 +473,7 @@ def calc_exposures(
                 + np.where(expirations != this_monthly_opex, put_delta_ex, 0).sum(
                     axis=1
                 )
-            ) / 10**11
+            ) / 10**9
             totalgamma_exfri = (
                 np.where(expirations != this_monthly_opex, call_gamma_ex, 0).sum(axis=1)
                 - np.where(expirations != this_monthly_opex, put_gamma_ex, 0).sum(
