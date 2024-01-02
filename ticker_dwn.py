@@ -9,10 +9,10 @@ from functools import partial
 
 
 def fulfill_req(ticker, is_json, session):
-    api_url = environ.get(
-        "API_URL",
-        f"https://cdn.cboe.com/api/global/delayed_quotes/options/{ticker.upper()}.json",
-    )
+    api_url = (
+        environ.get("API_URL")
+        or f"https://cdn.cboe.com/api/global/delayed_quotes/options/{ticker.upper()}.json"
+    ).strip()
     ticker = ticker.lower() if ticker[0] != "_" else ticker[1:].lower()
     d_format = "json" if is_json else "csv"
     filename = (
@@ -53,7 +53,7 @@ def fulfill_req(ticker, is_json, session):
 def dwn_data(is_json=True):
     pool = ThreadPool()
     print(f"\ndownload start: {datetime.now()}\n")
-    tickers = environ.get("TICKERS", "^SPX,^NDX,^RUT").split(",")
+    tickers = (environ.get("TICKERS") or "^SPX,^NDX,^RUT").strip().split(",")
     ticks_format = [
         f"_{ticker[1:]}" if ticker[0] == "^" else ticker for ticker in tickers
     ]

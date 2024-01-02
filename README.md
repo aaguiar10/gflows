@@ -42,9 +42,12 @@ $ source venv/bin/activate
 Create a .env file in the project's working directory to configure the app, otherwise the app will use default values:
 
 ```dosini
-API_URL=YOURAPIURL      # For downloading options data. If not set, the app defaults to a CBOE API — see ticker_dwn for info
-AUTO_RESPONSE=y         # Auto-respond to prompt 'Download recent data? (y/n).' If not set, user input is requested
-TICKERS=^SPX,^NDX,^RUT  # Default. Choose tickers from https://finance.yahoo.com/lookup (excluding futures)
+# For downloading options data. If not set, the app defaults to a CBOE API — see ticker_dwn for info
+API_URL=YOURAPIURL
+# Auto-respond to prompt 'Download recent data? (y/n).' If not set, user input is requested
+AUTO_RESPONSE=y
+# Default. Choose tickers from https://finance.yahoo.com/lookup (excluding futures)
+TICKERS=^SPX,^NDX,^RUT
 ```
 
 `my_app.py`:

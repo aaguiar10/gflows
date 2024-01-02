@@ -4,10 +4,10 @@
 }
 
 #monthly-options .Select .Select-control {
-    border: none;
+    border: none !important;
     border-radius: 0;
     box-shadow: none;
-    background: #2c3e50;
+    background: var(--bs-btn-color) !important;
     border-top-left-radius: 0.125rem;
     border-bottom-left-radius: 0.125rem;
 }
@@ -18,8 +18,9 @@
 }
 
 #monthly-options .Select-value-label {
-    color: #ffffff;
+    color: var(--bs-btn-active-color) !important;
 }
+
 #monthly-options .is-open .Select-arrow {
     border-color: transparent transparent #e0e0e0;
 }
@@ -36,24 +37,42 @@
 }
 
 #monthly-options .Select-menu-outer {
-    border: 1px solid;
+    border: 1px solid var(--bs-btn-color) !important;
 }
 
 #monthly-options .Select-placeholder {
-    background: #ffffff;
-    color: #2c3e50;
+    background: var(--bs-body-bg);
+    color: var(--bs-btn-color);
     border-top-left-radius: 0.1875rem;
     border-bottom-left-radius: 0.1875rem;
 }
 
-#live-dropdown {
-    text-align: center;
+.accordion {
+    --bs-accordion-border-color: rgba(100,100,100,.4);
+}
+
+.Select-menu-outer {
+    background-color: var(--bs-body-bg);
+    border: 1px solid rgba(100,100,100,.4) !important;
+}
+
+.Select-control {
+    background-color: var(--bs-body-bg) !important;
+    border: 1px solid rgba(100,100,100,.4) !important;
+}
+
+.Select-value-label {
+    color: var(--bs-body-color) !important;
 }
 
 .VirtualizedSelectOption {
-    display: flex !important;
-    justify-content: center !important;
-    color: #2c3e50;
+    display: flex;
+    justify-content: center;
+    color: var(--bs-body-color);
+}
+
+.VirtualizedSelectFocusedOption {
+    background-color: rgba(0, 126, 255, 0.25) !important;
 }
 
 .line-1-horizontal {

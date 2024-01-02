@@ -565,8 +565,8 @@ def get_options_data_json(ticker, expir, tz):
 
     # Get Spot
     spot_price = data["data.current_price"][0].astype(float)
-    from_strike = 0.5 * spot_price
-    to_strike = 1.5 * spot_price
+    from_strike = 0.75 * spot_price
+    to_strike = 1.25 * spot_price
 
     # Get Today's Date
     today_date = DateDataParser(
@@ -578,7 +578,7 @@ def get_options_data_json(ticker, expir, tz):
     ).get_date_data(str(data["timestamp"][0]))
     # Handle date formats
     today_ddt = today_date.date_obj - timedelta(minutes=15)
-    today_ddt_string = today_ddt.strftime("%b %d, %Y, %I:%M %p %Z") + " (15min delay)"
+    today_ddt_string = today_ddt.strftime("%Y %b %d, %I:%M %p %Z") + " (15min delay)"
 
     option_data = format_data(
         pd.DataFrame(data["data.options"][0]),
@@ -678,8 +678,8 @@ def get_options_data_csv(ticker, expir, tz):
 
     # Get Spot
     spot_price = float(spot_line.split("Last:")[1].split(",")[0])
-    from_strike = 0.5 * spot_price
-    to_strike = 1.5 * spot_price
+    from_strike = 0.75 * spot_price
+    to_strike = 1.25 * spot_price
     # Get Today's Date
     today_date = date_line.split("Date: ")[1].split(",Bid")[0]
 
@@ -692,7 +692,7 @@ def get_options_data_csv(ticker, expir, tz):
         today_date = " ".join(tmp)
     today_date = DateDataParser(settings={"TIMEZONE": tz}).get_date_data(today_date)
     today_ddt = today_date.date_obj - timedelta(minutes=15)
-    today_ddt_string = today_ddt.strftime("%b %d, %Y, %I:%M %p %Z") + " (15min delay)"
+    today_ddt_string = today_ddt.strftime("%Y %b %d, %I:%M %p %Z") + " (15min delay)"
 
     option_data["expiration_date"] = pd.to_datetime(
         option_data["expiration_date"], format="%a %b %d %Y"

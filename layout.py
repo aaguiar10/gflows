@@ -1,20 +1,15 @@
 from dash import html, dcc
 import dash_bootstrap_components as dbc
-from yahooquery import search
+from yahooquery import Ticker
 from os import environ
-from multiprocessing.dummy import Pool as ThreadPool
-from functools import partial
 
 
 def serve_layout():
-    pool = ThreadPool()
-    tickers = environ.get("TICKERS", "^SPX,^NDX,^RUT").split(",")
-    search_tickers = partial(search, first_quote=True)
-    ticker_info = pool.map(search_tickers, tickers)
-    pool.close()
-    pool.join()
+    tickers = (environ.get("TICKERS") or "^SPX,^NDX,^RUT").strip().split(",")
+    ticker_info = Ticker(tickers).quote_type
     return dbc.Container(
         [
+            dcc.Store(id="theme-store", data=[dbc.themes.FLATLY, dbc.themes.DARKLY]),
             dbc.Row(
                 children=[
                     dbc.Button(
@@ -47,7 +42,7 @@ def serve_layout():
                         placement="left",
                     ),
                 ],
-                class_name="d-flex justify-content-end m-auto mt-1",
+                class_name="d-flex justify-content-end m-auto mt-2",
             ),
             dbc.Row(
                 html.Div(
@@ -65,10 +60,10 @@ def serve_layout():
                     active_tab=tickers[0],
                     children=[
                         dbc.Tab(
-                            label=ticker_info[i]["longname"],
+                            label=ticker_info[ticker]["longName"],
                             tab_id=ticker,
                         )
-                        for i, ticker in enumerate(tickers)
+                        for ticker in tickers
                     ],
                     class_name="fs-5 p-0 nav-fill",
                 )
@@ -107,7 +102,7 @@ def serve_layout():
                                             placeholder="Monthly",
                                             searchable=False,
                                             clearable=False,
-                                            className="d-flex h-100 border border-primary align-items-center",
+                                            className="d-flex h-100 border border-primary btn-outline-primary align-items-center",
                                         ),
                                         className="w-50",
                                     ),
@@ -187,16 +182,36 @@ def serve_layout():
                 class_name="mt-2",
             ),
             dbc.Row(
-                html.Div(
-                    dbc.Pagination(
-                        id="pagination",
-                        active_page=1,
-                        max_value=2,
-                        size="sm",
-                        class_name="d-flex justify-content-end mt-2 mb-0 me-1",
-                    ),
-                    id="pagination-div",
-                )
+                dbc.Col(
+                    children=[
+                        html.Div(
+                            children=[
+                                dbc.Label(className="bi bi-sun-fill my-auto"),
+                                dbc.Switch(
+                                    id="switch",
+                                    value=False,
+                                    className="d-flex justify-content-center mx-1",
+                                    persistence=True,
+                                ),
+                                dbc.Label(className="bi bi-moon-fill my-auto"),
+                            ],
+                            className="d-flex align-items-center me-4",
+                            id="theme-btn-div",
+                        ),
+                        html.Div(
+                            dbc.Pagination(
+                                id="pagination",
+                                active_page=1,
+                                max_value=2,
+                                size="sm",
+                                class_name="mb-0 me-1",
+                            ),
+                            id="pagination-div",
+                        ),
+                    ],
+                    class_name="d-flex justify-content-end align-items-center",
+                ),
+                class_name="mt-2",
             ),
             dcc.Loading(
                 id="loading-icon",
@@ -346,7 +361,6 @@ def serve_layout():
                                 ],
                                 className="d-inline-flex align-items-center justify-content-center",
                             ),
-                            color="light",
                             class_name="d-flex",
                             id="kofi-btn",
                         ),
@@ -359,7 +373,8 @@ def serve_layout():
                                         style={
                                             "border": "none",
                                             "width": "100%",
-                                            "background": "#f9f9f9",
+                                            "padding": "0.25rem",
+                                            "background": "#fff",
                                         },
                                         height="360",
                                         title="aguiar",
@@ -371,7 +386,7 @@ def serve_layout():
                                         "View page",
                                         href="https://ko-fi.com/aaguiar",
                                         target="_blank",
-                                        className="link-dark",
+                                        id="kofi-link-color",
                                     ),
                                     class_name="d-flex justify-content-center",
                                     style={
@@ -388,7 +403,7 @@ def serve_layout():
                     ],
                     className="d-flex justify-content-center",
                 ),
-                className="mt-auto py-2",
+                className="py-2",
             ),
         ],
         class_name="vw-100 vh-100",

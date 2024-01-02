@@ -1,8 +1,9 @@
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
+import plotly.io as pio
 from plotly.subplots import make_subplots
 from dash import Dash, html, Input, Output, ctx, no_update
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 
 import textwrap
 from flask_caching import Cache
@@ -20,7 +21,11 @@ load_dotenv()  # load environment variables from .env
 
 app = Dash(
     __name__,
-    external_stylesheets=[dbc.themes.FLATLY, dbc.icons.BOOTSTRAP],
+    external_stylesheets=[
+        dbc.themes.DARKLY,
+        dbc.themes.FLATLY,
+        dbc.icons.BOOTSTRAP,
+    ],
     meta_tags=[
         {"name": "viewport", "content": "width=device-width, initial-scale=1"},
     ],
@@ -51,9 +56,7 @@ def analyze_data(ticker, expir):
         is_json=True,  # False for CSV
         tz="America/New_York",
     )
-    if result == None:
-        return (None,) * 26
-    return result
+    return (None,) * 26 if result is None else result
 
 
 def sensor():
@@ -70,7 +73,7 @@ if not response:
         response = input("\nDownload recent data? (y/n): ")
     except EOFError:
         response = "n"
-if response.lower() == "y":  # download data at start
+if response.strip().lower() == "y":  # download data at start
     sensor()
 else:
     print("\nUsing existing data...\n")
@@ -92,6 +95,29 @@ sched.add_job(
 sched.start()
 
 
+app.clientside_callback(  # toggle light or dark theme
+    """ 
+    (themeToggle, theme) => {
+        let themeLink = themeToggle ? theme[1] : theme[0]
+        let kofiBtn = themeToggle ? "dark" : "light"
+        let kofiLink = themeToggle ? "link-light" : "link-dark"
+        let stylesheets = document.querySelectorAll(
+            'link[rel=stylesheet][href^="https://cdn.jsdelivr"]'
+        )      
+        stylesheets[1].href = themeLink
+        // Update theme after a short delay
+        setTimeout(() => {stylesheets[0].href = themeLink;}, 100)
+        return [window.dash_clientside.no_update, kofiBtn, kofiLink]
+    }
+    """,
+    Output("switch", "id"),
+    Output("kofi-btn", "color"),
+    Output("kofi-link-color", "className"),
+    Input("switch", "value"),
+    State("theme-store", "data"),
+)
+
+
 @app.callback(  # handle selected expiration
     Output("exp-value", "data"),
     Output("all-btn", "active"),
@@ -100,26 +126,15 @@ sched.start()
     Input("all-btn", "n_clicks"),
 )
 def on_click(value, btn):
-    expir = no_update
-    is_all_active = no_update
-    current_val = no_update
+    button_map = {
+        "monthly-btn": ("monthly", False, "monthly-btn"),
+        "opex-btn": ("opex", False, "opex-btn"),
+        "0dte-btn": ("0dte", False, "0dte-btn"),
+    }
     if "all-btn" == ctx.triggered_id:
-        expir = "all"
-        is_all_active = True
-        current_val = ""
-    elif "monthly-btn" == value:
-        expir = "monthly"
-        is_all_active = False
-        current_val = "monthly-btn"
-    elif "opex-btn" == value:
-        expir = "opex"
-        is_all_active = False
-        current_val = "opex-btn"
-    elif "0dte-btn" == value:
-        expir = "0dte"
-        is_all_active = False
-        current_val = "0dte-btn"
-    return expir, is_all_active, current_val
+        return "all", True, ""
+    else:
+        return button_map.get(value, (no_update, no_update, no_update))
 
 
 @app.callback(  # handle selected option greek
@@ -136,50 +151,33 @@ def on_click(value, btn):
     Input("charm-btn", "n_clicks"),
 )
 def on_click(btn1, btn2, btn3, btn4):
-    is_active1 = True
-    is_active2 = False
-    is_active3 = False
-    is_active4 = False
-    options = [
+    is_active1, is_active2, is_active3, is_active4 = True, False, False, False
+    options, value = [
         "Absolute Delta Exposure",
         "Absolute Delta Exposure By Calls/Puts",
         "Delta Exposure Profile",
-    ]
-    value = "Absolute Delta Exposure"
+    ], "Absolute Delta Exposure"
     page = 1
     if "gamma-btn" == ctx.triggered_id:
-        is_active1 = False
-        is_active2 = True
-        is_active3 = False
-        is_active4 = False
-        options = [
+        is_active1, is_active2, is_active3, is_active4 = False, True, False, False
+        options, value = [
             "Absolute Gamma Exposure",
             "Absolute Gamma Exposure By Calls/Puts",
             "Gamma Exposure Profile",
-        ]
-        value = "Absolute Gamma Exposure"
-
+        ], "Absolute Gamma Exposure"
     elif "vanna-btn" == ctx.triggered_id:
-        is_active1 = False
-        is_active2 = False
-        is_active3 = True
-        is_active4 = False
-        options = [
+        is_active1, is_active2, is_active3, is_active4 = False, False, True, False
+        options, value = [
             "Absolute Vanna Exposure",
             "Implied Volatility Average",
             "Vanna Exposure Profile",
-        ]
-        value = "Absolute Vanna Exposure"
+        ], "Absolute Vanna Exposure"
     elif "charm-btn" == ctx.triggered_id:
-        is_active1 = False
-        is_active2 = False
-        is_active3 = False
-        is_active4 = True
-        options = [
+        is_active1, is_active2, is_active3, is_active4 = False, False, False, True
+        options, value = [
             "Absolute Charm Exposure",
             "Charm Exposure Profile",
-        ]
-        value = "Absolute Charm Exposure"
+        ], "Absolute Charm Exposure"
     return is_active1, is_active2, is_active3, is_active4, page, options, value
 
 
@@ -200,8 +198,9 @@ def check_cache_key(n_intervals):
     Input("exp-value", "data"),
     Input("pagination", "active_page"),
     Input("sensor", "data"),
+    Input("switch", "value"),
 )
-def update_live_chart(value, stock, expiration, active_page, refresh):
+def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dark):
     stock = f"{stock[1:]}" if stock[0] == "^" else stock
     (
         df,
@@ -232,61 +231,117 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
         put_ivs_exp,
     ) = analyze_data(stock.lower(), expiration)
     cache.set("cached_data", True)
+
+    xaxis, yaxis = dict(
+        gridcolor="lightgray", minor=dict(ticklen=5, tickcolor="#000", showgrid=True)
+    ), dict(gridcolor="lightgray", minor=dict(tickcolor="#000"))
+    layout = {
+        "title_x": 0.5,
+        "title_font_size": 12.5,
+        "title_xref": "paper",
+        "legend": dict(
+            orientation="v",
+            yanchor="top",
+            xanchor="right",
+            y=0.98,
+            x=0.98,
+            bgcolor="rgba(0,0,0,0.1)",
+            font_size=10,
+        ),
+        "showlegend": True,
+        "margin": dict(l=0, r=40),
+        "xaxis": xaxis,
+        "yaxis": yaxis,
+        "dragmode": "pan",
+    }
+    if not toggle_dark:
+        pio.templates["custom_template"] = pio.templates["seaborn"]
+    else:
+        pio.templates["custom_template"] = pio.templates["plotly_dark"]
+        for axis in [xaxis, yaxis]:
+            axis["gridcolor"], axis["minor"]["tickcolor"] = "#373737", "#707070"
+        layout["paper_bgcolor"] = "#222222"
+        layout["plot_bgcolor"] = "rgba(40, 40, 50, 0.8)"
+    pio.templates["custom_template"].update(layout=layout)
+    pio.templates.default = "custom_template"
+
     if df is None:
         return (
-            go.Figure(
-                {
-                    "data": [],
-                    "layout": {
-                        "title": {
-                            "text": stock + " data unavailable, retry later",
-                            "x": 0.5,
-                            "font": {"size": 12.5},
-                        }
-                    },
-                }
-            ),
+            go.Figure(layout={"title_text": f"{stock} data unavailable, retry later"}),
             True,
             no_update,
         )
 
-    df_agg = (
-        df.groupby(["strike_price"]).sum(numeric_only=True).loc[from_strike:to_strike]
-    )
-    strikes = df_agg.index.to_numpy()
+    date_condition = active_page == 2 and not "Profile" in value
+    if not date_condition:
+        df_agg = (
+            df.groupby(["strike_price"])
+            .sum(numeric_only=True)
+            .loc[from_strike:to_strike]
+        )
+    else:  # use dates
+        df_agg = (
+            df.groupby(["expiration_date"])
+            .sum(numeric_only=True)
+            .loc[: today_ddt + timedelta(weeks=26)]
+        )
+        call_ivs, put_ivs = call_ivs_exp, put_ivs_exp
 
-    exp_dates = (
-        df.groupby(["expiration_date"])
-        .sum(numeric_only=True)
-        .loc[: today_ddt + timedelta(weeks=26)]
-    )
-    exp_dates_x = exp_dates.index.to_numpy()
-
-    if expiration == "monthly":
-        legend_title = monthly_options_dates[0].strftime("%Y %b")
-    elif expiration == "opex":
-        legend_title = monthly_options_dates[1].strftime("%Y %b %d")
-    elif expiration == "0dte":
-        legend_title = monthly_options_dates[0].strftime("%Y %b %d")
+    if len(monthly_options_dates) != 0:
+        date_formats = {
+            "monthly": monthly_options_dates[0].strftime("%Y %b"),
+            "opex": monthly_options_dates[1].strftime("%Y %b %d"),
+            "0dte": monthly_options_dates[0].strftime("%Y %b %d"),
+        }
+        legend_title = date_formats[expiration]
+        monthly_options = [  # provide monthly option labels
+            {
+                "label": monthly_options_dates[0].strftime("%Y %B"),
+                "value": "monthly-btn",
+            },
+            {
+                "label": html.Div(
+                    children=[
+                        monthly_options_dates[1].strftime("%Y %B %d"),
+                        html.Span("*", className="align-super"),
+                    ],
+                    className="d-flex align-items-center",
+                ),
+                "value": "opex-btn",
+            },
+            {
+                "label": monthly_options_dates[0].strftime("%Y %B %d"),
+                "value": "0dte-btn",
+            },
+        ]
     else:
         legend_title = "All Expirations"
+        monthly_options = no_update
 
-    name = value.split()[1]
-    num_type = " per 1% "
+    strikes = df_agg.index.to_numpy()
+
+    is_profile_or_volatility = "Profile" in value or "Average" in value
+    value_split = value.split()
+    name = value_split[1] if not is_profile_or_volatility else value_split[0]
+    name_to_vars = {
+        "Delta": (f"per 1% {stock} Move", f"{name} Exposure (price / 1% move)"),
+        "Gamma": (f"per 1% {stock} Move", f"{name} Exposure (delta / 1% move)"),
+        "Vanna": (
+            f"per 1% {stock} IV Move",
+            f"{name} Exposure (delta / 1% IV move)",
+        ),
+        "Charm": (
+            f"a day til {stock} Expiry",
+            f"{name} Exposure (delta / day til expiry)",
+        ),
+        "Implied": ("", "Implied Volatility (IV) Average"),
+    }
+
+    description, y_title = name_to_vars[name]
+    yaxis.update(title_text=y_title)
     scale = 10**9
-    if name == "Charm":
-        num_type = " a day "
 
-    date_condition = active_page == 2 and not "Profile" in value
-
-    if date_condition:  # use dates
-        strikes = exp_dates_x
-        levels = exp_dates_x
-        call_ivs = call_ivs_exp
-        put_ivs = put_ivs_exp
-        df_agg = exp_dates
-
-    if (not "Calls/Puts" in value) and "Absolute" in value:
+    if "Absolute" in value and not "Calls/Puts" in value:
         fig = go.Figure(
             data=[
                 go.Bar(
@@ -294,7 +349,10 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
                     x=strikes,
                     y=df_agg[f"total_{name.lower()}"].to_numpy(),
                     marker=dict(
-                        line=dict(width=0.25, color="black"),
+                        line=dict(
+                            width=0.25,
+                            color=("#2B5078" if not toggle_dark else "#8795FA"),
+                        ),
                     ),
                 )
             ]
@@ -307,7 +365,10 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
                     x=strikes,
                     y=df_agg[f"call_{name[:1].lower()}ex"].to_numpy() / scale,
                     marker=dict(
-                        line=dict(width=0.25, color="black"),
+                        line=dict(
+                            width=0.25,
+                            color=("#2B5078" if not toggle_dark else "#8795FA"),
+                        ),
                     ),
                 ),
                 go.Bar(
@@ -315,95 +376,49 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
                     x=strikes,
                     y=df_agg[f"put_{name[:1].lower()}ex"].to_numpy() / scale,
                     marker=dict(
-                        line=dict(width=0.25, color="black"),
+                        line=dict(
+                            width=0.25,
+                            color=("#9B5C30" if not toggle_dark else "#F5765B"),
+                        ),
                     ),
                 ),
             ]
         )
 
-    if not ("Profile" in value or "Average" in value):
-        if name == "Vanna":
-            y_title = " Exposure (delta / 1% IV move)"
-            descript = stock + " IV Move, "
-        elif name == "Charm":
-            y_title = " Exposure (delta / day til expiry)"
-            descript = "til " + stock + " Expiry, "
-        elif name == "Gamma":
-            y_title = " Exposure (delta / 1% move)"
-            descript = stock + " Move, "
-        else:
-            y_title = " Exposure (price / 1% move)"
-            descript = stock + " Move, "
+    if not is_profile_or_volatility:
         split_title = textwrap.wrap(
-            "Total "
-            + name
-            + ": $"
+            f"Total {name}: $"
             + str("{:,.2f}".format(df[f"total_{name.lower()}"].sum() * scale))
-            + num_type
-            + descript
-            + today_ddt_string,
+            + f" {description}, {today_ddt_string}",
             width=50,
         )
         fig.update_layout(  # bar chart layout
             title_text="<br>".join(split_title),
-            title_x=0.5,
-            title_font_size=12.5,
-            title_xref="paper",
-            xaxis=({"title": ("Strike") if not date_condition else "Date"}),
-            yaxis={"title": {"text": name + y_title}},
-            showlegend=True,
-            paper_bgcolor="#fff",
-            margin=dict(l=0, r=40),
-            legend=dict(
-                title_text=legend_title,
-                orientation="v",
-                yanchor="top",
-                xanchor="right",
-                y=0.98,
-                x=0.98,
-                bgcolor="rgba(0,0,0,0.05)",
-                font_size=10,
-            ),
+            legend_title_text=legend_title,
+            xaxis=xaxis,
+            yaxis=yaxis,
             barmode="relative",
-            template="seaborn",
             modebar_remove=["autoscale", "lasso2d"],
         )
-    if "Profile" in value or "Average" in value:
-        name = value.split()[0]
-        if name == "Delta":
-            y_title = " Exposure (price / 1% move)"
-            all_ex = totaldelta
-            ex_next = totaldelta_exnext
-            ex_fri = totaldelta_exfri
-            zeroflip = zerodelta
-        elif name == "Gamma":
-            y_title = " Exposure (delta / 1% move)"
-            all_ex = totalgamma
-            ex_next = totalgamma_exnext
-            ex_fri = totalgamma_exfri
-            zeroflip = zerogamma
-        elif name == "Vanna":
-            y_title = " Exposure (delta / 1% IV move)"
-            all_ex = totalvanna
-            ex_next = totalvanna_exnext
-            ex_fri = totalvanna_exfri
-        elif name == "Charm":
-            y_title = " Exposure (delta / day til expiry)"
-            all_ex = totalcharm
-            ex_next = totalcharm_exnext
-            ex_fri = totalcharm_exfri
+    if is_profile_or_volatility:
         fig = make_subplots(rows=1, cols=1)
-        split_title = textwrap.wrap(
-            f"{stock} {name} Exposure Profile, {today_ddt_string}", width=50
-        )
         if not date_condition and name != "Implied":  # chart profiles
+            split_title = textwrap.wrap(
+                f"{stock} {name} Exposure Profile, {today_ddt_string}", width=50
+            )
+            name_to_vars = {
+                "Delta": (totaldelta, totaldelta_exnext, totaldelta_exfri, zerodelta),
+                "Gamma": (totalgamma, totalgamma_exnext, totalgamma_exfri, zerogamma),
+                "Vanna": (totalvanna, totalvanna_exnext, totalvanna_exfri, None),
+                "Charm": (totalcharm, totalcharm_exnext, totalcharm_exfri, None),
+            }
+            all_ex, ex_next, ex_fri, zeroflip = name_to_vars[name]
             fig.add_trace(go.Scatter(x=levels, y=all_ex, name="All Expiries"))
             fig.add_trace(go.Scatter(x=levels, y=ex_next, name="Next Expiry"))
             fig.add_trace(go.Scatter(x=levels, y=ex_fri, name="Next Monthly Expiry"))
             # show - &/or + areas of exposure depending on condition
             if name == "Charm" or name == "Vanna":
-                all_ex_min = all_ex.min()
-                all_ex_max = all_ex.max()
+                all_ex_min, all_ex_max = all_ex.min(), all_ex.max()
                 min_n = [
                     all_ex_min,
                     ex_fri.min() if ex_fri.size != 0 else all_ex_min,
@@ -439,10 +454,11 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
                     annotation_text=name + " Flip",
                     annotation_position="top left",
                 )
-            elif zeroflip.size > 0:  # greek has a - to + flip
+            # greek has a - to + flip
+            elif zeroflip.size > 0:
                 fig.add_vline(
                     x=zeroflip,
-                    line_color="green",
+                    line_color="dimgray",
                     line_width=1,
                     name=name + " Flip",
                     annotation_text=name + " Flip: " + str("{:,.0f}".format(zeroflip)),
@@ -462,7 +478,8 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
                     opacity=0.1,
                     line_width=0,
                 )
-            elif all_ex[0] < 0:  # flip unknown, assume - dominance
+            # flip unknown, assume - dominance
+            elif all_ex[0] < 0:
                 fig.add_vrect(
                     x0=from_strike,
                     x1=to_strike,
@@ -470,7 +487,8 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
                     opacity=0.1,
                     line_width=0,
                 )
-            elif all_ex[0] > 0:  # flip unknown, assume + dominance
+            # flip unknown, assume + dominance
+            elif all_ex[0] > 0:
                 fig.add_vrect(
                     x0=from_strike,
                     x1=to_strike,
@@ -478,8 +496,7 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
                     opacity=0.1,
                     line_width=0,
                 )
-        elif name == "Implied":
-            # in IV section, chart call/put IV averages
+        elif name == "Implied":  # in IV section, chart put/call IV averages
             fig.add_trace(
                 go.Scatter(
                     x=strikes,
@@ -489,7 +506,6 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
                     line_color="#C44E52",
                 )
             )
-
             fig.add_trace(
                 go.Scatter(
                     x=strikes,
@@ -499,47 +515,25 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
                     line_color="#32A3A3",
                 )
             )
-
             split_title = textwrap.wrap(
                 f"{stock} IV Average, {today_ddt_string}", width=50
             )
-        fig.update_layout(  # scatter chart layout
-            title_text="<br>".join(split_title),
-            title_x=0.5,
-            title_font_size=12.5,
-            title_xref="paper",
-            xaxis=({"title": ("Strike") if not date_condition else "Date"}),
-            yaxis={
-                "title": {
-                    "text": (name + y_title)
-                    if not (date_condition or "Average" in value)
-                    else "Implied Volatility (IV) Average"
-                }
-            },
-            showlegend=True,
-            legend=dict(
-                title_text=legend_title,
-                orientation="v",
-                yanchor="top",
-                xanchor="right",
-                y=0.98,
-                x=0.98,
-                bgcolor="rgba(0,0,0,0.05)",
-                font_size=10,
-            ),
-            paper_bgcolor="#fff",
-            margin=dict(l=0, r=40),
-            template="seaborn",
-            modebar_remove=["autoscale"],
-        )
         fig.add_hline(
             y=0,
             line_width=1,
-            line_color="gray",
+            line_color="dimgray",
         )
+        fig.update_layout(  # scatter chart layout
+            title_text="<br>".join(split_title),
+            legend_title_text=legend_title,
+            xaxis=xaxis,
+            yaxis=yaxis,
+            modebar_remove=["autoscale"],
+        )
+
     fig.update_xaxes(
+        title="Strike" if not date_condition else "Date",
         showgrid=True,
-        minor=dict(ticklen=5, tickcolor="black", showgrid=True),
         range=(
             [spot_price * 0.9, spot_price * 1.1]
             if not date_condition
@@ -548,7 +542,6 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
                 today_ddt + timedelta(days=31),
             ]
         ),
-        gridcolor="lightgray",
         gridwidth=1,
         rangeslider=dict(visible=True),
     )
@@ -556,13 +549,13 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
         showgrid=True,
         fixedrange=True,
         minor_ticks="inside",
-        gridcolor="lightgray",
         gridwidth=1,
     )
+
     if not date_condition:
         fig.add_vline(
             x=spot_price,
-            line_color="slategray",
+            line_color="#707070",
             line_width=1,
             line_dash="dash",
             name=stock + " Spot",
@@ -570,34 +563,9 @@ def update_live_chart(value, stock, expiration, active_page, refresh):
             annotation_position="top",
         )
 
-    pagination_hidden = "Profile" in value
+    is_pagination_hidden = "Profile" in value
 
-    # provide monthly option labels
-    if len(monthly_options_dates) != 0:
-        monthly_options = [
-            {
-                "label": monthly_options_dates[0].strftime("%Y %B"),
-                "value": "monthly-btn",
-            },
-            {
-                "label": html.Div(
-                    children=[
-                        monthly_options_dates[1].strftime("%Y %B %d"),
-                        html.Span("*", className="align-super"),
-                    ],
-                    className="d-flex align-items-center",
-                ),
-                "value": "opex-btn",
-            },
-            {
-                "label": monthly_options_dates[0].strftime("%Y %B %d"),
-                "value": "0dte-btn",
-            },
-        ]
-    else:
-        monthly_options = no_update
-
-    return fig, pagination_hidden, monthly_options
+    return fig, is_pagination_hidden, monthly_options
 
 
 if __name__ == "__main__":
