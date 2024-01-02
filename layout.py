@@ -9,7 +9,11 @@ def serve_layout():
     ticker_info = Ticker(tickers).quote_type
     return dbc.Container(
         [
-            dcc.Store(id="theme-store", data=[dbc.themes.FLATLY, dbc.themes.DARKLY]),
+            dcc.Store(
+                id="theme-store",
+                storage_type="local",
+                data=[dbc.themes.FLATLY, dbc.themes.DARKLY],
+            ),
             dbc.Row(
                 children=[
                     dbc.Button(
@@ -192,6 +196,7 @@ def serve_layout():
                                     value=False,
                                     className="d-flex justify-content-center mx-1",
                                     persistence=True,
+                                    persistence_type="local",
                                 ),
                                 dbc.Label(className="bi bi-moon-fill my-auto"),
                             ],

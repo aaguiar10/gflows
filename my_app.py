@@ -113,8 +113,7 @@ app.clientside_callback(  # toggle light or dark theme
     Output("switch", "id"),
     Output("kofi-btn", "color"),
     Output("kofi-link-color", "className"),
-    Input("switch", "value"),
-    State("theme-store", "data"),
+    [Input("switch", "value"), State("theme-store", "data")],
 )
 
 
