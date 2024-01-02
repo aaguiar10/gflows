@@ -3,7 +3,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots
 from dash import Dash, html, Input, Output, ctx, no_update
-from dash.dependencies import Input, Output, State
+from dash.dependencies import Input, Output
 
 import textwrap
 from flask_caching import Cache
@@ -113,7 +113,8 @@ app.clientside_callback(  # toggle light or dark theme
     Output("switch", "id"),
     Output("kofi-btn", "color"),
     Output("kofi-link-color", "className"),
-    [Input("switch", "value"), State("theme-store", "data")],
+    Input("switch", "value"),
+    Input("theme-store", "data"),
 )
 
 
