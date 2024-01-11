@@ -2,8 +2,7 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots
-from dash import Dash, html, Input, Output, ctx, no_update
-from dash.dependencies import Input, Output
+from dash import Dash, html, Input, Output, ctx, no_update, State
 
 import textwrap
 from flask_caching import Cache
@@ -31,11 +30,9 @@ app = Dash(
     ],
     title="G|Flows",
 )
-server = app.server
-app.layout = serve_layout
 
 cache = Cache(
-    server,
+    app.server,
     config={
         "CACHE_TYPE": "FileSystemCache",
         "CACHE_DIR": "cache",
@@ -44,6 +41,9 @@ cache = Cache(
 )
 
 cache.clear()
+
+app.layout = serve_layout
+server = app.server
 
 
 @cache.memoize(timeout=60 * 15)  # cache charts for 15 min
@@ -107,14 +107,11 @@ app.clientside_callback(  # toggle light or dark theme
         stylesheets[1].href = themeLink
         // Update theme after a short delay
         setTimeout(() => {stylesheets[0].href = themeLink;}, 100)
-        return [window.dash_clientside.no_update, kofiBtn, kofiLink]
+        return [kofiBtn, kofiLink]
     }
     """,
-    Output("switch", "id"),
-    Output("kofi-btn", "color"),
-    Output("kofi-link-color", "className"),
-    Input("switch", "value"),
-    Input("theme-store", "data"),
+    [Output("kofi-btn", "color"), Output("kofi-link-color", "className")],
+    [Input("switch", "value"), State("theme-store", "data")],
 )
 
 
@@ -186,7 +183,7 @@ def on_click(btn1, btn2, btn3, btn4):
     Input("interval", "n_intervals"),
 )
 def check_cache_key(n_intervals):
-    return (not cache.has("cached_data")) or no_update
+    return [(not cache.has("cached_data")) or no_update]
 
 
 @app.callback(  # handle chart display based on inputs

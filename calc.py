@@ -103,28 +103,8 @@ def is_parsable(date):
 
 
 def format_data(data, today_ddt, tzinfo):
-    data = data.drop(
-        columns=[
-            "bid",
-            "bid_size",
-            "ask",
-            "ask_size",
-            "volume",
-            "theta",
-            "rho",
-            "vega",
-            "theo",
-            "change",
-            "open",
-            "high",
-            "low",
-            "tick",
-            "last_trade_price",
-            "last_trade_time",
-            "percent_change",
-            "prev_day_close",
-        ]
-    )
+    keys_to_keep = ["option", "iv", "open_interest", "delta", "gamma"]
+    data = pd.DataFrame([{k: d[k] for k in keys_to_keep if k in d} for d in data])
     data = pd.concat(
         [
             data.rename(
@@ -448,49 +428,43 @@ def calc_exposures(
     # charm exposure
     totalcharm = (call_charm_ex.sum(axis=1) - put_charm_ex.sum(axis=1)) / 10**9
 
+    expirs_not_first_expiry = expirations != first_expiry
+    expirs_not_this_monthly_opex = expirations != this_monthly_opex
     if expir != "0dte":
         # exposure for next expiry
         totaldelta_exnext = (
-            np.where(expirations != first_expiry, call_delta_ex, 0).sum(axis=1)
-            + np.where(expirations != first_expiry, put_delta_ex, 0).sum(axis=1)
+            np.where(expirs_not_first_expiry, call_delta_ex, 0).sum(axis=1)
+            + np.where(expirs_not_first_expiry, put_delta_ex, 0).sum(axis=1)
         ) / 10**9
         totalgamma_exnext = (
-            np.where(expirations != first_expiry, call_gamma_ex, 0).sum(axis=1)
-            - np.where(expirations != first_expiry, put_gamma_ex, 0).sum(axis=1)
+            np.where(expirs_not_first_expiry, call_gamma_ex, 0).sum(axis=1)
+            - np.where(expirs_not_first_expiry, put_gamma_ex, 0).sum(axis=1)
         ) / 10**9
         totalvanna_exnext = (
-            np.where(expirations != first_expiry, call_vanna_ex, 0).sum(axis=1)
-            - np.where(expirations != first_expiry, put_vanna_ex, 0).sum(axis=1)
+            np.where(expirs_not_first_expiry, call_vanna_ex, 0).sum(axis=1)
+            - np.where(expirs_not_first_expiry, put_vanna_ex, 0).sum(axis=1)
         ) / 10**9
         totalcharm_exnext = (
-            np.where(expirations != first_expiry, call_charm_ex, 0).sum(axis=1)
-            - np.where(expirations != first_expiry, put_charm_ex, 0).sum(axis=1)
+            np.where(expirs_not_first_expiry, call_charm_ex, 0).sum(axis=1)
+            - np.where(expirs_not_first_expiry, put_charm_ex, 0).sum(axis=1)
         ) / 10**9
         if expir == "all":
             # exposure for next monthly opex
             totaldelta_exfri = (
-                np.where(expirations != this_monthly_opex, call_delta_ex, 0).sum(axis=1)
-                + np.where(expirations != this_monthly_opex, put_delta_ex, 0).sum(
-                    axis=1
-                )
+                np.where(expirs_not_this_monthly_opex, call_delta_ex, 0).sum(axis=1)
+                + np.where(expirs_not_this_monthly_opex, put_delta_ex, 0).sum(axis=1)
             ) / 10**9
             totalgamma_exfri = (
-                np.where(expirations != this_monthly_opex, call_gamma_ex, 0).sum(axis=1)
-                - np.where(expirations != this_monthly_opex, put_gamma_ex, 0).sum(
-                    axis=1
-                )
+                np.where(expirs_not_this_monthly_opex, call_gamma_ex, 0).sum(axis=1)
+                - np.where(expirs_not_this_monthly_opex, put_gamma_ex, 0).sum(axis=1)
             ) / 10**9
             totalvanna_exfri = (
-                np.where(expirations != this_monthly_opex, call_vanna_ex, 0).sum(axis=1)
-                - np.where(expirations != this_monthly_opex, put_vanna_ex, 0).sum(
-                    axis=1
-                )
+                np.where(expirs_not_this_monthly_opex, call_vanna_ex, 0).sum(axis=1)
+                - np.where(expirs_not_this_monthly_opex, put_vanna_ex, 0).sum(axis=1)
             ) / 10**9
             totalcharm_exfri = (
-                np.where(expirations != this_monthly_opex, call_charm_ex, 0).sum(axis=1)
-                - np.where(expirations != this_monthly_opex, put_charm_ex, 0).sum(
-                    axis=1
-                )
+                np.where(expirs_not_this_monthly_opex, call_charm_ex, 0).sum(axis=1)
+                - np.where(expirs_not_this_monthly_opex, put_charm_ex, 0).sum(axis=1)
             ) / 10**9
 
     # Find Delta Flip Point
@@ -581,7 +555,7 @@ def get_options_data_json(ticker, expir, tz):
     today_ddt_string = today_ddt.strftime("%Y %b %d, %I:%M %p %Z") + " (15min delay)"
 
     option_data = format_data(
-        pd.DataFrame(data["data.options"][0]),
+        data["data.options"][0],
         today_ddt,
         today_date.date_obj.tzinfo,
     )
