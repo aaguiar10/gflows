@@ -57,7 +57,7 @@ def serve_layout():
             dcc.Interval(
                 id="interval", interval=1000 * 60 * 1, n_intervals=0, max_intervals=720
             ),  # every minute, check if chart should be refreshed
-            dcc.Store(id="sensor", storage_type="memory", data=[False]),
+            dcc.Store(id="refresh", storage_type="memory"),
             dbc.Row(
                 dbc.Tabs(
                     id="tabs",

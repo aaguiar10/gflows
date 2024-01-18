@@ -3,6 +3,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots
 from dash import Dash, html, Input, Output, ctx, no_update, State
+from dash.exceptions import PreventUpdate
 
 import textwrap
 from flask_caching import Cache
@@ -62,8 +63,7 @@ def analyze_data(ticker, expir):
 def sensor():
     # default: json format
     dwn_data(is_json=True)  # False for CSV
-    cache.delete("cached_data")
-    cache.delete_memoized(analyze_data)
+    cache.clear()
 
 
 # respond to prompt if env variable not set
@@ -178,12 +178,16 @@ def on_click(btn1, btn2, btn3, btn4):
     return is_active1, is_active2, is_active3, is_active4, page, options, value
 
 
-@app.callback(
-    Output("sensor", "data"),
+@app.callback(  # handle refreshed data
+    Output("refresh", "data"),
     Input("interval", "n_intervals"),
+    State("tabs", "active_tab"),
+    State("exp-value", "data"),
 )
-def check_cache_key(n_intervals):
-    return [(not cache.has("cached_data")) or no_update]
+def check_cache_key(n_intervals, stock, expiration):
+    stock = f"{stock[1:]}" if stock[0] == "^" else stock
+    if cache.has(f"{stock.lower()}_{expiration}"):
+        raise PreventUpdate
 
 
 @app.callback(  # handle chart display based on inputs
@@ -194,7 +198,7 @@ def check_cache_key(n_intervals):
     Input("tabs", "active_tab"),
     Input("exp-value", "data"),
     Input("pagination", "active_page"),
-    Input("sensor", "data"),
+    Input("refresh", "data"),
     Input("switch", "value"),
 )
 def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dark):
@@ -227,7 +231,8 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
         call_ivs_exp,
         put_ivs_exp,
     ) = analyze_data(stock.lower(), expiration)
-    cache.set("cached_data", True)
+    if not cache.has(f"{stock.lower()}_{expiration}"):
+        cache.set(f"{stock.lower()}_{expiration}", True)
 
     xaxis, yaxis = dict(
         gridcolor="lightgray", minor=dict(ticklen=5, tickcolor="#000", showgrid=True)
