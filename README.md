@@ -65,6 +65,12 @@ sched.add_job(
     ),
 )
 sched.add_job(
+    check_for_retry,
+    CronTrigger.from_crontab(
+        "1,16,31,46 9-15 * * 0-4", timezone=timezone("America/New_York")
+    ),
+)
+sched.add_job(
     sensor,
     CronTrigger.from_crontab(
         "0,15,30 16 * * 0-4", timezone=timezone("America/New_York")

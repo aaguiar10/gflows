@@ -3,9 +3,11 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots
 from dash import Dash, html, Input, Output, ctx, no_update, State
+from dash.dcc import send_data_frame
 from dash.exceptions import PreventUpdate
 
 import textwrap
+from pandas import DataFrame, concat
 from flask_caching import Cache
 from calc import get_options_data
 from ticker_dwn import dwn_data
@@ -57,13 +59,19 @@ def analyze_data(ticker, expir):
         is_json=True,  # False for CSV
         tz="America/New_York",
     )
-    return (None,) * 26 if result is None else result
+    return (None,) * 16 if result is None else result
 
 
 def sensor():
     # default: json format
     dwn_data(is_json=True)  # False for CSV
     cache.clear()
+
+
+def check_for_retry():
+    if cache.has("retry"):
+        print("\Redownloading data due to missing greek exposure...\n")
+        sensor()
 
 
 # respond to prompt if env variable not set
@@ -84,6 +92,12 @@ sched.add_job(
     sensor,
     CronTrigger.from_crontab(
         "0,15,30,45 9-15 * * 0-4", timezone=timezone("America/New_York")
+    ),
+)
+sched.add_job(
+    check_for_retry,
+    CronTrigger.from_crontab(
+        "1,16,31,46 9-15 * * 0-4", timezone=timezone("America/New_York")
     ),
 )
 sched.add_job(
@@ -121,20 +135,24 @@ app.clientside_callback(  # toggle light or dark theme
     Output("monthly-options", "value"),
     Input("monthly-options", "value"),
     Input("all-btn", "n_clicks"),
+    State("exp-value", "data"),
 )
-def on_click(value, btn):
-    button_map = {
-        "monthly-btn": ("monthly", False, "monthly-btn"),
-        "opex-btn": ("opex", False, "opex-btn"),
-        "0dte-btn": ("0dte", False, "0dte-btn"),
-    }
-    if "all-btn" == ctx.triggered_id:
-        return "all", True, ""
+def on_click(value, btn, expiration):
+    if not ctx.triggered_id and expiration:
+        value = f"{expiration}-btn"
+    if ctx.triggered_id == "all-btn" or value == "all-btn":
+        return "all", True, None
     else:
-        return button_map.get(value, (no_update, no_update, no_update))
+        button_map = {
+            "monthly-btn": ("monthly", False, "monthly-btn"),
+            "opex-btn": ("opex", False, "opex-btn"),
+            "0dte-btn": ("0dte", False, "0dte-btn"),
+        }
+        return button_map.get(value, ("monthly", False, "monthly-btn"))
 
 
 @app.callback(  # handle selected option greek
+    Output("greek-value", "data"),
     Output("delta-btn", "active"),
     Output("gamma-btn", "active"),
     Output("vanna-btn", "active"),
@@ -146,36 +164,95 @@ def on_click(value, btn):
     Input("gamma-btn", "n_clicks"),
     Input("vanna-btn", "n_clicks"),
     Input("charm-btn", "n_clicks"),
+    Input("pagination", "active_page"),
+    Input("live-dropdown", "value"),
+    State("greek-value", "data"),
 )
-def on_click(btn1, btn2, btn3, btn4):
-    is_active1, is_active2, is_active3, is_active4 = True, False, False, False
-    options, value = [
-        "Absolute Delta Exposure",
-        "Absolute Delta Exposure By Calls/Puts",
-        "Delta Exposure Profile",
-    ], "Absolute Delta Exposure"
-    page = 1
-    if "gamma-btn" == ctx.triggered_id:
-        is_active1, is_active2, is_active3, is_active4 = False, True, False, False
-        options, value = [
-            "Absolute Gamma Exposure",
-            "Absolute Gamma Exposure By Calls/Puts",
-            "Gamma Exposure Profile",
-        ], "Absolute Gamma Exposure"
-    elif "vanna-btn" == ctx.triggered_id:
-        is_active1, is_active2, is_active3, is_active4 = False, False, True, False
-        options, value = [
-            "Absolute Vanna Exposure",
-            "Implied Volatility Average",
-            "Vanna Exposure Profile",
-        ], "Absolute Vanna Exposure"
-    elif "charm-btn" == ctx.triggered_id:
-        is_active1, is_active2, is_active3, is_active4 = False, False, False, True
-        options, value = [
-            "Absolute Charm Exposure",
-            "Charm Exposure Profile",
-        ], "Absolute Charm Exposure"
-    return is_active1, is_active2, is_active3, is_active4, page, options, value
+def on_click(btn1, btn2, btn3, btn4, active_page, value, greek):
+    if not ctx.triggered_id and greek:
+        is_active1, is_active2, is_active3, is_active4 = greek["is_active"]
+        active_page, options, value = (
+            greek["active_page"],
+            greek["options"],
+            greek["value"],
+        )
+    elif ctx.triggered_id == "live-dropdown":
+        is_active1, is_active2, is_active3, is_active4 = greek["is_active"]
+        active_page, options = greek["active_page"], greek["options"]
+    elif ctx.triggered_id == "pagination":
+        is_active1, is_active2, is_active3, is_active4 = greek["is_active"]
+        options, value = greek["options"], greek["value"]
+    else:
+        button_map = {
+            "delta-btn": (
+                True,
+                False,
+                False,
+                False,
+                [
+                    "Absolute Delta Exposure",
+                    "Delta Exposure By Calls/Puts",
+                    "Delta Exposure Profile",
+                ],
+                "Absolute Delta Exposure",
+            ),
+            "gamma-btn": (
+                False,
+                True,
+                False,
+                False,
+                [
+                    "Absolute Gamma Exposure",
+                    "Gamma Exposure By Calls/Puts",
+                    "Gamma Exposure Profile",
+                ],
+                "Absolute Gamma Exposure",
+            ),
+            "vanna-btn": (
+                False,
+                False,
+                True,
+                False,
+                [
+                    "Absolute Vanna Exposure",
+                    "Implied Volatility Average",
+                    "Vanna Exposure Profile",
+                ],
+                "Absolute Vanna Exposure",
+            ),
+            "charm-btn": (
+                False,
+                False,
+                False,
+                True,
+                [
+                    "Absolute Charm Exposure",
+                    "Charm Exposure Profile",
+                ],
+                "Absolute Charm Exposure",
+            ),
+        }
+        is_active1, is_active2, is_active3, is_active4, options, value = button_map[
+            ctx.triggered_id or "delta-btn"
+        ]
+
+    greek = {
+        "is_active": (is_active1, is_active2, is_active3, is_active4),
+        "active_page": active_page,
+        "options": options,
+        "value": value,
+    }
+
+    return (
+        greek,
+        is_active1,
+        is_active2,
+        is_active3,
+        is_active4,
+        active_page,
+        options,
+        value,
+    )
 
 
 @app.callback(  # handle refreshed data
@@ -185,9 +262,80 @@ def on_click(btn1, btn2, btn3, btn4):
     State("exp-value", "data"),
 )
 def check_cache_key(n_intervals, stock, expiration):
-    stock = f"{stock[1:]}" if stock[0] == "^" else stock
     if cache.has(f"{stock.lower()}_{expiration}"):
         raise PreventUpdate
+
+
+@app.callback(  # handle export menu
+    Output("export-df-csv", "data"),
+    Input("btn-chart-data", "n_clicks"),
+    Input("btn-sig-points", "n_clicks"),
+    State("tabs", "active_tab"),
+    State("exp-value", "data"),
+    State("pagination", "active_page"),
+    State("live-dropdown", "value"),
+    State("live-chart", "figure"),
+    prevent_initial_call=True,
+)
+def handle_menu(btn1, btn2, stock, expiration, active_page, value, fig):
+    cache_key = f"{stock.lower()}_{expiration}"
+    if not cache.has(cache_key) or not fig["data"]:
+        raise PreventUpdate
+
+    data = cache.get(cache_key)
+    fig_data = fig["data"]
+
+    if not fig_data[0]["y"]:
+        raise PreventUpdate
+
+    if expiration != "all":
+        date_formats = {
+            "monthly": data["monthly_options_dates"][0].strftime("%Y-%b"),
+            "opex": data["monthly_options_dates"][1].strftime("%Y-%b-%d"),
+            "0dte": data["monthly_options_dates"][0].strftime("%Y-%b-%d"),
+        }
+        exp_date = date_formats[expiration]
+    else:
+        exp_date = "All_Expirations"
+
+    date_condition = active_page == 2 and not "Profile" in value
+    prefix = "Strikes" if not date_condition else "Dates"
+    formatted_date = str(data["today_ddt"]).replace(" ", "_")
+    chart_name = value.replace(" ", "_")
+    filename = f"{prefix}_{chart_name}_{exp_date}__{formatted_date}.csv"
+
+    df_agg = DataFrame(
+        data=zip(*[item["y"] for item in fig_data if item["y"]]),
+        index=fig_data[0]["x"],
+        columns=[item["name"] for item in fig_data if item["y"]],
+    )
+    df_agg.index.name = prefix
+
+    if ctx.triggered_id == "btn-chart-data":
+        return send_data_frame(
+            df_agg.to_csv,
+            f"{stock}_{filename}",
+        )
+    elif ctx.triggered_id == "btn-sig-points":
+        significant_points = DataFrame(
+            {
+                f"Signif_{col.replace(' ', '_')}": concat(
+                    [
+                        df_agg.loc[df_agg[col] > 0, col].nlargest(5),
+                        df_agg.loc[df_agg[col] < 0, col].nsmallest(5),
+                    ]
+                )
+                for col in df_agg.columns
+            }
+        )
+        if "Delta" in value:
+            significant_points["Delta_Flip"] = data["zero_delta"]
+        elif "Gamma" in value:
+            significant_points["Gamma_Flip"] = data["zero_gamma"]
+        return send_data_frame(
+            significant_points.fillna(0).to_csv,
+            f"{stock}_SigPoints_{filename}",
+        )
 
 
 @app.callback(  # handle chart display based on inputs
@@ -202,7 +350,6 @@ def check_cache_key(n_intervals, stock, expiration):
     Input("switch", "value"),
 )
 def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dark):
-    stock = f"{stock[1:]}" if stock[0] == "^" else stock
     (
         df,
         today_ddt,
@@ -213,26 +360,24 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
         to_strike,
         levels,
         totaldelta,
-        totaldelta_exnext,
-        totaldelta_exfri,
         totalgamma,
-        totalgamma_exnext,
-        totalgamma_exfri,
         totalvanna,
-        totalvanna_exnext,
-        totalvanna_exfri,
         totalcharm,
-        totalcharm_exnext,
-        totalcharm_exfri,
         zerodelta,
         zerogamma,
         call_ivs,
         put_ivs,
-        call_ivs_exp,
-        put_ivs_exp,
     ) = analyze_data(stock.lower(), expiration)
     if not cache.has(f"{stock.lower()}_{expiration}"):
-        cache.set(f"{stock.lower()}_{expiration}", True)
+        cache.set(
+            f"{stock.lower()}_{expiration}",
+            {
+                "monthly_options_dates": monthly_options_dates,
+                "today_ddt": today_ddt,
+                "zero_delta": zerodelta,
+                "zero_gamma": zerogamma,
+            },
+        )
 
     xaxis, yaxis = dict(
         gridcolor="lightgray", minor=dict(ticklen=5, tickcolor="#000", showgrid=True)
@@ -281,69 +426,83 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
             .sum(numeric_only=True)
             .loc[from_strike:to_strike]
         )
+        call_ivs, put_ivs = call_ivs["strike"], put_ivs["strike"]
     else:  # use dates
         df_agg = (
             df.groupby(["expiration_date"])
             .sum(numeric_only=True)
-            .loc[: today_ddt + timedelta(weeks=26)]
+            .loc[: today_ddt + timedelta(weeks=52)]
         )
-        call_ivs, put_ivs = call_ivs_exp, put_ivs_exp
+        call_ivs, put_ivs = call_ivs["exp"], put_ivs["exp"]
 
-    if len(monthly_options_dates) != 0:
-        date_formats = {
-            "monthly": monthly_options_dates[0].strftime("%Y %b"),
-            "opex": monthly_options_dates[1].strftime("%Y %b %d"),
-            "0dte": monthly_options_dates[0].strftime("%Y %b %d"),
-        }
-        legend_title = date_formats[expiration]
-        monthly_options = [  # provide monthly option labels
-            {
-                "label": monthly_options_dates[0].strftime("%Y %B"),
-                "value": "monthly-btn",
-            },
-            {
-                "label": html.Div(
-                    children=[
-                        monthly_options_dates[1].strftime("%Y %B %d"),
-                        html.Span("*", className="align-super"),
-                    ],
-                    className="d-flex align-items-center",
-                ),
-                "value": "opex-btn",
-            },
-            {
-                "label": monthly_options_dates[0].strftime("%Y %B %d"),
-                "value": "0dte-btn",
-            },
-        ]
-    else:
-        legend_title = "All Expirations"
-        monthly_options = no_update
+    date_formats = {
+        "monthly": monthly_options_dates[0].strftime("%Y %b"),
+        "opex": monthly_options_dates[1].strftime("%Y %b %d"),
+        "0dte": monthly_options_dates[0].strftime("%Y %b %d"),
+    }
+    monthly_options = [  # provide monthly option labels
+        {
+            "label": monthly_options_dates[0].strftime("%Y %B"),
+            "value": "monthly-btn",
+        },
+        {
+            "label": html.Div(
+                children=[
+                    monthly_options_dates[1].strftime("%Y %B %d"),
+                    html.Span("*", className="align-super"),
+                ],
+                className="d-flex align-items-center",
+            ),
+            "value": "opex-btn",
+        },
+        {
+            "label": monthly_options_dates[0].strftime("%Y %B %d"),
+            "value": "0dte-btn",
+        },
+    ]
+    legend_title = (
+        date_formats[expiration] if expiration != "all" else "All Expirations"
+    )
 
     strikes = df_agg.index.to_numpy()
 
     is_profile_or_volatility = "Profile" in value or "Average" in value
-    value_split = value.split()
-    name = value_split[1] if not is_profile_or_volatility else value_split[0]
-    name_to_vars = {
-        "Delta": (f"per 1% {stock} Move", f"{name} Exposure (price / 1% move)"),
-        "Gamma": (f"per 1% {stock} Move", f"{name} Exposure (delta / 1% move)"),
+    name = value.split()[1] if "Absolute" in value else value.split()[0]
+    if (
+        df[f"total_delta"].sum() == 0
+        and not cache.has("retry")
+        and expiration != "opex"
+    ):  # set a 'retry' trigger in the cache if total exposure is 0
+        cache.set("retry", True)
+    name_to_vals = {
+        "Delta": (
+            f"per 1% {stock} Move",
+            f"{name} Exposure (price / 1% move)",
+            zerodelta,
+        ),
+        "Gamma": (
+            f"per 1% {stock} Move",
+            f"{name} Exposure (delta / 1% move)",
+            zerogamma,
+        ),
         "Vanna": (
             f"per 1% {stock} IV Move",
             f"{name} Exposure (delta / 1% IV move)",
+            0,
         ),
         "Charm": (
             f"a day til {stock} Expiry",
             f"{name} Exposure (delta / day til expiry)",
+            0,
         ),
-        "Implied": ("", "Implied Volatility (IV) Average"),
+        "Implied": ("", "Implied Volatility (IV) Average", 0),
     }
 
-    description, y_title = name_to_vars[name]
+    description, y_title, zeroflip = name_to_vals[name]
     yaxis.update(title_text=y_title)
     scale = 10**9
 
-    if "Absolute" in value and not "Calls/Puts" in value:
+    if "Absolute" in value:
         fig = go.Figure(
             data=[
                 go.Bar(
@@ -408,13 +567,29 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
             split_title = textwrap.wrap(
                 f"{stock} {name} Exposure Profile, {today_ddt_string}", width=50
             )
-            name_to_vars = {
-                "Delta": (totaldelta, totaldelta_exnext, totaldelta_exfri, zerodelta),
-                "Gamma": (totalgamma, totalgamma_exnext, totalgamma_exfri, zerogamma),
-                "Vanna": (totalvanna, totalvanna_exnext, totalvanna_exfri, None),
-                "Charm": (totalcharm, totalcharm_exnext, totalcharm_exfri, None),
+            name_to_vals = {
+                "Delta": (
+                    totaldelta["all"],
+                    totaldelta["ex_next"],
+                    totaldelta["ex_fri"],
+                ),
+                "Gamma": (
+                    totalgamma["all"],
+                    totalgamma["ex_next"],
+                    totalgamma["ex_fri"],
+                ),
+                "Vanna": (
+                    totalvanna["all"],
+                    totalvanna["ex_next"],
+                    totalvanna["ex_fri"],
+                ),
+                "Charm": (
+                    totalcharm["all"],
+                    totalcharm["ex_next"],
+                    totalcharm["ex_fri"],
+                ),
             }
-            all_ex, ex_next, ex_fri, zeroflip = name_to_vars[name]
+            all_ex, ex_next, ex_fri = name_to_vals[name]
             fig.add_trace(go.Scatter(x=levels, y=all_ex, name="All Expiries"))
             fig.add_trace(go.Scatter(x=levels, y=ex_next, name="Next Expiry"))
             fig.add_trace(go.Scatter(x=levels, y=ex_fri, name="Next Monthly Expiry"))
@@ -457,7 +632,7 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
                     annotation_position="top left",
                 )
             # greek has a - to + flip
-            elif zeroflip.size > 0:
+            elif zeroflip > 0:
                 fig.add_vline(
                     x=zeroflip,
                     line_color="dimgray",
@@ -539,10 +714,14 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
         range=(
             [spot_price * 0.9, spot_price * 1.1]
             if not date_condition
-            else [
-                today_ddt,
-                today_ddt + timedelta(days=31),
-            ]
+            else (
+                [
+                    strikes[0] - timedelta(seconds=0.0625),
+                    strikes[0] + timedelta(seconds=0.0625),
+                ]
+                if len(strikes) == 1
+                else [today_ddt, today_ddt + timedelta(days=31)]
+            )
         ),
         gridwidth=1,
         rangeslider=dict(visible=True),

@@ -61,15 +61,16 @@ def serve_layout():
             dbc.Row(
                 dbc.Tabs(
                     id="tabs",
-                    active_tab=tickers[0],
                     children=[
                         dbc.Tab(
                             label=ticker_info[ticker]["longName"],
-                            tab_id=ticker,
+                            tab_id=f"{ticker[1:]}" if ticker[0] == "^" else ticker,
                         )
                         for ticker in tickers
                     ],
                     class_name="fs-5 p-0 nav-fill",
+                    persistence=True,
+                    persistence_type="local",
                 )
             ),
             dbc.Row(
@@ -102,11 +103,12 @@ def serve_layout():
                                                 },
                                             ],
                                             id="monthly-options",
-                                            value="monthly-btn",
                                             placeholder="Monthly",
                                             searchable=False,
                                             clearable=False,
                                             className="d-flex h-100 border border-primary btn-outline-primary align-items-center",
+                                            persistence=True,
+                                            persistence_type="local",
                                         ),
                                         className="w-50",
                                     ),
@@ -127,6 +129,7 @@ def serve_layout():
                     dbc.Col(
                         [
                             html.Div(html.H4("Greeks"), className="mx-auto"),
+                            dcc.Store(id="greek-value", storage_type="local"),
                             dbc.ButtonGroup(
                                 children=[
                                     dbc.Button(
@@ -170,24 +173,46 @@ def serve_layout():
                     ),
                 ],
             ),
-            dcc.Store(id="exp-value", storage_type="memory"),
+            dcc.Store(id="exp-value", storage_type="local"),
             dbc.Row(
                 dcc.Dropdown(
                     options=[
                         "Absolute Delta Exposure",
-                        "Absolute Delta Exposure By Calls/Puts",
+                        "Delta Exposure By Calls/Puts",
                         "Delta Exposure Profile",
                     ],
                     value="Absolute Delta Exposure",
                     clearable=False,
                     searchable=False,
                     id="live-dropdown",
+                    persistence=True,
+                    persistence_type="local",
                 ),
                 class_name="mt-2",
             ),
             dbc.Row(
                 dbc.Col(
                     children=[
+                        html.Div(
+                            [
+                                dbc.DropdownMenu(
+                                    label=html.I(className="bi bi-download"),
+                                    color="primary",
+                                    children=[
+                                        dbc.DropdownMenuItem(
+                                            "Export chart data", id="btn-chart-data"
+                                        ),
+                                        dbc.DropdownMenuItem(
+                                            "Export significant points",
+                                            id="btn-sig-points",
+                                        ),
+                                    ],
+                                    size="sm",
+                                ),
+                                dcc.Download(id="export-df-csv"),
+                            ],
+                            className="me-auto",
+                        ),
                         html.Div(
                             children=[
                                 dbc.Label(className="bi bi-sun-fill my-auto"),
