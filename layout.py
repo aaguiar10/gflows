@@ -55,9 +55,9 @@ def serve_layout():
                 )
             ),
             dcc.Interval(
-                id="interval", interval=1000 * 60 * 1, n_intervals=0, max_intervals=720
+                id="interval", interval=1000 * 60 * 1, n_intervals=0
             ),  # every minute, check if chart should be refreshed
-            dcc.Store(id="refresh", storage_type="memory"),
+            dcc.Store(id="refresh", storage_type="local"),
             dbc.Row(
                 dbc.Tabs(
                     id="tabs",
@@ -218,7 +218,6 @@ def serve_layout():
                                 dbc.Label(className="bi bi-sun-fill my-auto"),
                                 dbc.Switch(
                                     id="switch",
-                                    value=False,
                                     className="d-flex justify-content-center mx-1",
                                     persistence=True,
                                     persistence_type="local",

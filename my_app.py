@@ -117,9 +117,10 @@ app.clientside_callback(  # toggle light or dark theme
         let kofiLink = themeToggle ? "link-light" : "link-dark"
         let stylesheets = document.querySelectorAll(
             'link[rel=stylesheet][href^="https://cdn.jsdelivr"]'
-        )      
+        )
+        // Update main theme
         stylesheets[1].href = themeLink
-        // Update theme after a short delay
+        // Update buffer after a short delay
         setTimeout(() => {stylesheets[0].href = themeLink;}, 100)
         return [kofiBtn, kofiLink]
     }
@@ -257,6 +258,7 @@ def on_click(btn1, btn2, btn3, btn4, active_page, value, greek):
 
 @app.callback(  # handle refreshed data
     Output("refresh", "data"),
+    Output("interval", "n_intervals"),
     Input("interval", "n_intervals"),
     State("tabs", "active_tab"),
     State("exp-value", "data"),
@@ -264,6 +266,7 @@ def on_click(btn1, btn2, btn3, btn4, active_page, value, greek):
 def check_cache_key(n_intervals, stock, expiration):
     if cache.has(f"{stock.lower()}_{expiration}"):
         raise PreventUpdate
+    return True, 0
 
 
 @app.callback(  # handle export menu

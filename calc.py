@@ -176,20 +176,20 @@ def calc_exposures(
 
     strike_prices = option_data["strike_price"].to_numpy()
     expirations = option_data["expiration_date"].to_numpy()
-    days_till_exp = option_data["time_till_exp"].to_numpy()
+    time_till_exp = option_data["time_till_exp"].to_numpy()
     opt_call_ivs = option_data["call_iv"].to_numpy()
     opt_put_ivs = option_data["put_iv"].to_numpy()
     call_open_interest = option_data["call_open_int"].to_numpy()
     put_open_interest = option_data["put_open_int"].to_numpy()
 
-    nonzero_call_cond = (days_till_exp > 0) & (opt_call_ivs > 0)
-    nonzero_put_cond = (days_till_exp > 0) & (opt_put_ivs > 0)
+    nonzero_call_cond = (time_till_exp > 0) & (opt_call_ivs > 0)
+    nonzero_put_cond = (time_till_exp > 0) & (opt_put_ivs > 0)
 
     call_dp, call_cdf_dp, call_pdf_dp = calc_dp_cdf_pdf(
         spot_price,
         strike_prices,
         opt_call_ivs,
-        days_till_exp,
+        time_till_exp,
         yield_10yr,
         dividend_yield,
     )
@@ -197,7 +197,7 @@ def calc_exposures(
         spot_price,
         strike_prices,
         opt_put_ivs,
-        days_till_exp,
+        time_till_exp,
         yield_10yr,
         dividend_yield,
     )
@@ -230,7 +230,7 @@ def calc_exposures(
         calc_vanna_ex(
             spot_price,
             opt_call_ivs,
-            days_till_exp,
+            time_till_exp,
             dividend_yield,
             call_open_interest,
             call_dp,
@@ -243,7 +243,7 @@ def calc_exposures(
         calc_vanna_ex(
             spot_price,
             opt_put_ivs,
-            days_till_exp,
+            time_till_exp,
             dividend_yield,
             put_open_interest,
             put_dp,
@@ -256,7 +256,7 @@ def calc_exposures(
         calc_charm_ex(
             spot_price,
             opt_call_ivs,
-            days_till_exp,
+            time_till_exp,
             yield_10yr,
             dividend_yield,
             "call",
@@ -272,7 +272,7 @@ def calc_exposures(
         calc_charm_ex(
             spot_price,
             opt_put_ivs,
-            days_till_exp,
+            time_till_exp,
             yield_10yr,
             dividend_yield,
             "put",
@@ -350,7 +350,7 @@ def calc_exposures(
         levels,
         strike_prices,
         opt_call_ivs,
-        days_till_exp,
+        time_till_exp,
         yield_10yr,
         dividend_yield,
     )
@@ -358,7 +358,7 @@ def calc_exposures(
         levels,
         strike_prices,
         opt_put_ivs,
-        days_till_exp,
+        time_till_exp,
         yield_10yr,
         dividend_yield,
     )
@@ -366,7 +366,7 @@ def calc_exposures(
         nonzero_call_cond,
         calc_delta_ex(
             levels,
-            days_till_exp,
+            time_till_exp,
             dividend_yield,
             "call",
             call_open_interest,
@@ -378,7 +378,7 @@ def calc_exposures(
         nonzero_put_cond,
         calc_delta_ex(
             levels,
-            days_till_exp,
+            time_till_exp,
             dividend_yield,
             "put",
             put_open_interest,
@@ -391,7 +391,7 @@ def calc_exposures(
         calc_gamma_ex(
             levels,
             opt_call_ivs,
-            days_till_exp,
+            time_till_exp,
             dividend_yield,
             call_open_interest,
             call_pdf_dp,
@@ -403,7 +403,7 @@ def calc_exposures(
         calc_gamma_ex(
             levels,
             opt_put_ivs,
-            days_till_exp,
+            time_till_exp,
             dividend_yield,
             put_open_interest,
             put_pdf_dp,
@@ -415,7 +415,7 @@ def calc_exposures(
         calc_vanna_ex(
             levels,
             opt_call_ivs,
-            days_till_exp,
+            time_till_exp,
             dividend_yield,
             call_open_interest,
             call_dp,
@@ -428,7 +428,7 @@ def calc_exposures(
         calc_vanna_ex(
             levels,
             opt_put_ivs,
-            days_till_exp,
+            time_till_exp,
             dividend_yield,
             put_open_interest,
             put_dp,
@@ -441,7 +441,7 @@ def calc_exposures(
         calc_charm_ex(
             levels,
             opt_call_ivs,
-            days_till_exp,
+            time_till_exp,
             yield_10yr,
             dividend_yield,
             "call",
@@ -457,7 +457,7 @@ def calc_exposures(
         calc_charm_ex(
             levels,
             opt_put_ivs,
-            days_till_exp,
+            time_till_exp,
             yield_10yr,
             dividend_yield,
             "put",

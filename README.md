@@ -22,29 +22,49 @@ G|Flows, or Greek Flows, provides 15-minute updates for the SPX, NDX, and RUT in
 
 ## Setup
 
-Compatible with Python versions **>=3.9**
+This application is compatible with Python versions **>=3.9**
 
-Install the app's required packages:
+### Virtual Environment (Recommended)
 
-```{.sourceCode .bash}
-$ pip install -r requirements.txt
+For an isolated package installation, create and activate a virtual environment:
+
+```bash
+# Create venv
+$ python -m venv venv
 ```
 
-(Recommended) To keep the package installation local/within a virtual environment, run these before the `pip` command:
+Activation:
 
-```{.sourceCode .bash}
-$ python -m venv venv
-$ source venv/bin/activate
+- Linux/Mac:
+
+  ```bash
+  $ source venv/bin/activate
+  ```
+
+- Windows:
+
+  ```bash
+  # Command Prompt
+  $ venv\Scripts\activate.bat
+
+  # PowerShell
+  $ venv\Scripts\Activate.ps1
+  ```
+
+### Install Required Packages
+
+```bash
+$ pip install -r requirements.txt
 ```
 
 ### Configuration:
 
 Create a .env file in the project's working directory to configure the app, otherwise the app will use default values:
 
-```dosini
+```ini
 # For downloading options data. If not set, the app defaults to a CBOE API — see ticker_dwn for info
 API_URL=YOURAPIURL
-# Auto-respond to prompt 'Download recent data? (y/n).' If not set, user input is requested
+# Auto-respond to prompt 'Download recent data? (y/n)'. If not set, user input is requested
 AUTO_RESPONSE=y
 # Default. Choose tickers from https://finance.yahoo.com/lookup (excluding futures)
 TICKERS=^SPX,^NDX,^RUT
@@ -54,7 +74,7 @@ TICKERS=^SPX,^NDX,^RUT
 
 G|Flows uses a scheduler to periodically redownload options data. To disable it, comment out this code
 
-```
+```python
 """
 # schedule when to redownload data
 sched = BackgroundScheduler(daemon=True)
@@ -82,7 +102,7 @@ sched.start()
 
 To analyze CSV data, change the **is_json** value to **False** within the **analyze_data** function
 
-```
+```python
 def analyze_data(ticker, expir):
     # Analyze stored data of specified ticker and expiry
     # defaults: json format, timezone 'America/New_York'
@@ -101,6 +121,6 @@ For manual updates, CSV-formatted options data can be downloaded [here](https://
 
 Upon completion, run the Dash app (available at http://localhost:8050):
 
-```{.sourceCode .bash}
+```bash
 $ python my_app.py
 ```
