@@ -55,8 +55,8 @@ def serve_layout():
                 )
             ),
             dcc.Interval(
-                id="interval", interval=1000 * 60 * 1, n_intervals=0
-            ),  # every minute, check if chart should be refreshed
+                id="interval", interval=1000 * 3 * 1, n_intervals=0
+            ),  # every three seconds, check if chart should be refreshed
             dcc.Store(id="refresh", storage_type="local"),
             dbc.Row(
                 dbc.Tabs(
@@ -136,7 +136,6 @@ def serve_layout():
                                         "Delta",
                                         id="delta-btn",
                                         color="primary",
-                                        active=True,
                                         outline=True,
                                         n_clicks=0,
                                     ),
@@ -144,7 +143,6 @@ def serve_layout():
                                         "Gamma",
                                         id="gamma-btn",
                                         color="primary",
-                                        active=False,
                                         outline=True,
                                         n_clicks=0,
                                     ),
@@ -152,7 +150,6 @@ def serve_layout():
                                         "Vanna",
                                         id="vanna-btn",
                                         color="primary",
-                                        active=False,
                                         outline=True,
                                         n_clicks=0,
                                     ),
@@ -160,7 +157,6 @@ def serve_layout():
                                         "Charm",
                                         id="charm-btn",
                                         color="primary",
-                                        active=False,
                                         outline=True,
                                         n_clicks=0,
                                     ),
@@ -176,12 +172,7 @@ def serve_layout():
             dcc.Store(id="exp-value", storage_type="local"),
             dbc.Row(
                 dcc.Dropdown(
-                    options=[
-                        "Absolute Delta Exposure",
-                        "Delta Exposure By Calls/Puts",
-                        "Delta Exposure Profile",
-                    ],
-                    value="Absolute Delta Exposure",
+                    placeholder="",
                     clearable=False,
                     searchable=False,
                     id="live-dropdown",
@@ -235,6 +226,7 @@ def serve_layout():
                                 size="sm",
                                 class_name="mb-0 me-1",
                             ),
+                            hidden=True,
                             id="pagination-div",
                         ),
                     ],
@@ -246,7 +238,13 @@ def serve_layout():
                 id="loading-icon",
                 children=[
                     dbc.Row(
-                        dcc.Graph(id="live-chart", responsive=True),
+                        dcc.Graph(
+                            id="live-chart",
+                            responsive=True,
+                            style={
+                                "display": "none"
+                            },  # initially hidden until data loads
+                        ),
                         class_name="vw-100 vh-100 mt-0",
                     ),
                     dbc.Row(

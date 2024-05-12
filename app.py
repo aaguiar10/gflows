@@ -32,6 +32,7 @@ app = Dash(
         {"name": "viewport", "content": "width=device-width, initial-scale=1"},
     ],
     title="G|Flows",
+    update_title=None,
 )
 
 cache = Cache(
@@ -343,6 +344,7 @@ def handle_menu(btn1, btn2, stock, expiration, active_page, value, fig):
 
 @app.callback(  # handle chart display based on inputs
     Output("live-chart", "figure"),
+    Output("live-chart", "style"),
     Output("pagination-div", "hidden"),
     Output("monthly-options", "options"),
     Input("live-dropdown", "value"),
@@ -371,6 +373,7 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
         call_ivs,
         put_ivs,
     ) = analyze_data(stock.lower(), expiration)
+
     if not cache.has(f"{stock.lower()}_{expiration}"):
         cache.set(
             f"{stock.lower()}_{expiration}",
@@ -382,6 +385,7 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
             },
         )
 
+    # chart theme and layout
     xaxis, yaxis = dict(
         gridcolor="lightgray", minor=dict(ticklen=5, tickcolor="#000", showgrid=True)
     ), dict(gridcolor="lightgray", minor=dict(tickcolor="#000"))
@@ -405,8 +409,10 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
         "dragmode": "pan",
     }
     if not toggle_dark:
+        # light theme
         pio.templates["custom_template"] = pio.templates["seaborn"]
     else:
+        # dark theme
         pio.templates["custom_template"] = pio.templates["plotly_dark"]
         for axis in [xaxis, yaxis]:
             axis["gridcolor"], axis["minor"]["tickcolor"] = "#373737", "#707070"
@@ -471,12 +477,14 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
 
     is_profile_or_volatility = "Profile" in value or "Average" in value
     name = value.split()[1] if "Absolute" in value else value.split()[0]
+
     if (
         df[f"total_delta"].sum() == 0
         and not cache.has("retry")
         and expiration != "opex"
-    ):  # set a 'retry' trigger in the cache if total exposure is 0
+    ):  # if total delta exposure is 0, set a trigger for the scheduler
         cache.set("retry", True)
+
     name_to_vals = {
         "Delta": (
             f"per 1% {stock} Move",
@@ -749,7 +757,7 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
 
     is_pagination_hidden = "Profile" in value
 
-    return fig, is_pagination_hidden, monthly_options
+    return fig, {}, is_pagination_hidden, monthly_options
 
 
 if __name__ == "__main__":

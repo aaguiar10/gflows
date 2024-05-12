@@ -70,7 +70,7 @@ AUTO_RESPONSE=y
 TICKERS=^SPX,^NDX,^RUT
 ```
 
-`my_app.py`:
+`app.py`:
 
 G|Flows uses a scheduler to periodically redownload options data. To disable it, comment out this code
 
@@ -122,5 +122,5 @@ For manual updates, CSV-formatted options data can be downloaded [here](https://
 Upon completion, run the Dash app (available at http://localhost:8050):
 
 ```bash
-$ python my_app.py
+$ python app.py
 ```

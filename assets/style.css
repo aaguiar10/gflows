@@ -164,3 +164,15 @@
     83% { background-size: 10px 3px, 10px 3px,  10px 10px, 10px 30px, 10px 50px, 10px 3px}
     100% { background-size: 10px 3px, 10px 3px, 10px 3px,  10px 10px, 10px 30px, 10px 50px}
 }
+
+.dash-graph--pending .plotly .main-svg:first-child {
+    background: var(--bs-body-bg) !important;
+}
+
+.dash-graph--pending .plotly .crisp {
+    stroke: none !important;
+}
+
+.dash-graph--pending .plotly .modebar-group {
+    background-color: transparent !important;
+}
