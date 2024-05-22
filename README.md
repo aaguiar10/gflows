@@ -80,20 +80,35 @@ G|Flows uses a scheduler to periodically redownload options data. To disable it,
 sched = BackgroundScheduler(daemon=True)
 sched.add_job(
     sensor,
-    CronTrigger.from_crontab(
-        "0,15,30,45 9-15 * * 0-4", timezone=timezone("America/New_York")
+    combining.OrTrigger(
+        [
+            cron.CronTrigger.from_crontab(
+                "0,15,30,45 9-15 * * 0-4", timezone=timezone("America/New_York")
+            ),
+            cron.CronTrigger.from_crontab(
+                "0,15,30 16 * * 0-4", timezone=timezone("America/New_York")
+            ),
+        ]
     ),
 )
 sched.add_job(
     check_for_retry,
-    CronTrigger.from_crontab(
-        "1,16,31,46 9-15 * * 0-4", timezone=timezone("America/New_York")
-    ),
-)
-sched.add_job(
-    sensor,
-    CronTrigger.from_crontab(
-        "0,15,30 16 * * 0-4", timezone=timezone("America/New_York")
+    combining.OrTrigger(
+        [
+            cron.CronTrigger(
+                day_of_week="0-4",
+                hour="9-15",
+                second="*/5",
+                timezone=timezone("America/New_York"),
+            ),
+            cron.CronTrigger(
+                day_of_week="0-4",
+                hour="16",
+                minute="0-30",
+                second="*/5",
+                timezone=timezone("America/New_York"),
+            ),
+        ]  # during the specified times, check every 5 seconds for a retry condition
     ),
 )
 sched.start()

@@ -9,11 +9,11 @@ from dash.exceptions import PreventUpdate
 import textwrap
 from pandas import DataFrame, concat
 from flask_caching import Cache
-from calc import get_options_data
-from ticker_dwn import dwn_data
-from layout import serve_layout
+from modules.calc import get_options_data
+from modules.ticker_dwn import dwn_data
+from modules.layout import serve_layout
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers import cron, combining
 from datetime import timedelta
 from pytz import timezone
 from dotenv import load_dotenv
@@ -60,19 +60,36 @@ def analyze_data(ticker, expir):
         is_json=True,  # False for CSV
         tz="America/New_York",
     )
-    return (None,) * 16 if result is None else result
+    if not result:
+        result = (None,) * 16
+    if not cache.has(f"{ticker}_{expir}"):
+        cache.set(  # for client/server sync
+            f"{ticker}_{expir}",
+            {
+                "ticker": ticker,
+                "expiration": expir,
+                "spot_price": result[4],
+                "monthly_options_dates": result[3],
+                "today_ddt": result[1],
+                "today_ddt_string": result[2],
+                "zero_delta": result[12],
+                "zero_gamma": result[13],
+            },
+        )
+    return result
 
 
-def sensor():
-    # default: json format
-    dwn_data(is_json=True)  # False for CSV
+def sensor(select=None):
+    # default: all tickers, json format
+    dwn_data(select, is_json=True)  # False for CSV
     cache.clear()
 
 
 def check_for_retry():
-    if cache.has("retry"):
-        print("\Redownloading data due to missing greek exposure...\n")
-        sensor()
+    tickers = cache.get("retry")
+    if tickers:
+        print("\nRedownloading data due to missing greek exposure...\n")
+        sensor(select=tickers)
 
 
 # respond to prompt if env variable not set
@@ -91,20 +108,35 @@ else:
 sched = BackgroundScheduler(daemon=True)
 sched.add_job(
     sensor,
-    CronTrigger.from_crontab(
-        "0,15,30,45 9-15 * * 0-4", timezone=timezone("America/New_York")
+    combining.OrTrigger(
+        [
+            cron.CronTrigger.from_crontab(
+                "0,15,30,45 9-15 * * 0-4", timezone=timezone("America/New_York")
+            ),
+            cron.CronTrigger.from_crontab(
+                "0,15,30 16 * * 0-4", timezone=timezone("America/New_York")
+            ),
+        ]
     ),
 )
 sched.add_job(
     check_for_retry,
-    CronTrigger.from_crontab(
-        "1,16,31,46 9-15 * * 0-4", timezone=timezone("America/New_York")
-    ),
-)
-sched.add_job(
-    sensor,
-    CronTrigger.from_crontab(
-        "0,15,30 16 * * 0-4", timezone=timezone("America/New_York")
+    combining.OrTrigger(
+        [
+            cron.CronTrigger(
+                day_of_week="0-4",
+                hour="9-15",
+                second="*/5",
+                timezone=timezone("America/New_York"),
+            ),
+            cron.CronTrigger(
+                day_of_week="0-4",
+                hour="16",
+                minute="0-30",
+                second="*/5",
+                timezone=timezone("America/New_York"),
+            ),
+        ]  # during the specified times, check every 5 seconds for a retry condition
     ),
 )
 sched.start()
@@ -263,11 +295,30 @@ def on_click(btn1, btn2, btn3, btn4, active_page, value, greek):
     Input("interval", "n_intervals"),
     State("tabs", "active_tab"),
     State("exp-value", "data"),
+    State("live-chart", "figure"),
 )
-def check_cache_key(n_intervals, stock, expiration):
-    if cache.has(f"{stock.lower()}_{expiration}"):
-        raise PreventUpdate
-    return True, 0
+def check_cache_key(n_intervals, stock, expiration, fig):
+    data = cache.get(f"{stock.lower()}_{expiration}")
+    if not data and stock and expiration:
+        analyze_data(stock.lower(), expiration)
+    if (
+        data
+        and (fig and fig["data"])
+        and (
+            data["today_ddt_string"]
+            and data["ticker"] == stock.lower()
+            and data["ticker"].upper()
+            in fig["layout"]["title"]["text"].replace("<br>", " ")
+            and data["expiration"] == expiration
+        )
+        and (
+            data["today_ddt_string"]
+            not in fig["layout"]["title"]["text"].replace("<br>", " ")
+            or data["spot_price"] != fig["layout"]["shapes"][0]["x0"]
+        )
+    ):  # refresh on current selection if client data differs from server cache
+        return data, 0
+    raise PreventUpdate
 
 
 @app.callback(  # handle export menu
@@ -282,11 +333,10 @@ def check_cache_key(n_intervals, stock, expiration):
     prevent_initial_call=True,
 )
 def handle_menu(btn1, btn2, stock, expiration, active_page, value, fig):
-    cache_key = f"{stock.lower()}_{expiration}"
-    if not cache.has(cache_key) or not fig["data"]:
+    data = cache.get(f"{stock.lower()}_{expiration}")
+    if not data or not data["today_ddt"] or not fig["data"]:
         raise PreventUpdate
 
-    data = cache.get(cache_key)
     fig_data = fig["data"]
 
     if not fig_data[0]["y"]:
@@ -374,17 +424,6 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
         put_ivs,
     ) = analyze_data(stock.lower(), expiration)
 
-    if not cache.has(f"{stock.lower()}_{expiration}"):
-        cache.set(
-            f"{stock.lower()}_{expiration}",
-            {
-                "monthly_options_dates": monthly_options_dates,
-                "today_ddt": today_ddt,
-                "zero_delta": zerodelta,
-                "zero_gamma": zerogamma,
-            },
-        )
-
     # chart theme and layout
     xaxis, yaxis = dict(
         gridcolor="lightgray", minor=dict(ticklen=5, tickcolor="#000", showgrid=True)
@@ -424,24 +463,41 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
     if df is None:
         return (
             go.Figure(layout={"title_text": f"{stock} data unavailable, retry later"}),
+            {},
             True,
             no_update,
         )
 
+    retry_cache = cache.get("retry")
+    if (
+        df["total_delta"].sum() == 0
+        and (not retry_cache or stock not in retry_cache)
+        and (
+            expiration not in ["0dte", "opex"]
+            or (
+                expiration == "0dte"
+                and today_ddt < monthly_options_dates[0] + timedelta(minutes=15)
+            )
+            or (
+                expiration == "opex"
+                and today_ddt < monthly_options_dates[1] + timedelta(minutes=15)
+            )
+        )
+    ):
+        # if data hasn't expired and total delta exposure is 0,
+        # set a 'retry' for the scheduler to catch
+        retry_cache = retry_cache or []
+        retry_cache.append(stock)
+        cache.set("retry", retry_cache)
+
     date_condition = active_page == 2 and not "Profile" in value
     if not date_condition:
-        df_agg = (
-            df.groupby(["strike_price"])
-            .sum(numeric_only=True)
-            .loc[from_strike:to_strike]
-        )
+        df_agg = df.groupby(["strike_price"]).sum(numeric_only=True)
+        df_agg = df_agg[from_strike:to_strike]  # filter for relevance
         call_ivs, put_ivs = call_ivs["strike"], put_ivs["strike"]
     else:  # use dates
-        df_agg = (
-            df.groupby(["expiration_date"])
-            .sum(numeric_only=True)
-            .loc[: today_ddt + timedelta(weeks=52)]
-        )
+        df_agg = df.groupby(["expiration_date"]).sum(numeric_only=True)
+        # df_agg = df_agg[: today_ddt + timedelta(weeks=52)] # filter for relevance
         call_ivs, put_ivs = call_ivs["exp"], put_ivs["exp"]
 
     date_formats = {
@@ -477,13 +533,6 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
 
     is_profile_or_volatility = "Profile" in value or "Average" in value
     name = value.split()[1] if "Absolute" in value else value.split()[0]
-
-    if (
-        df[f"total_delta"].sum() == 0
-        and not cache.has("retry")
-        and expiration != "opex"
-    ):  # if total delta exposure is 0, set a trigger for the scheduler
-        cache.set("retry", True)
 
     name_to_vals = {
         "Delta": (

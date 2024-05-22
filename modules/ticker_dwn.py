@@ -50,21 +50,23 @@ def fulfill_req(ticker, is_json, session):
                 break
 
 
-def dwn_data(is_json=True):
+def dwn_data(select, is_json):
     pool = ThreadPool()
     print(f"\ndownload start: {datetime.now()}\n")
-    tickers = (environ.get("TICKERS") or "^SPX,^NDX,^RUT").strip().split(",")
-    ticks_format = [
-        f"_{ticker[1:]}" if ticker[0] == "^" else ticker for ticker in tickers
+    tickers_pool = (environ.get("TICKERS") or "^SPX,^NDX,^RUT").strip().split(",")
+    if select:  # select tickers to download
+        tickers_pool = [f"^{t}" if f"^{t}" in tickers_pool else t for t in select]
+    tickers_format = [
+        f"_{ticker[1:]}" if ticker[0] == "^" else ticker for ticker in tickers_pool
     ]
     session = requests.Session()
     session.headers.update({"Accept": "application/json" if is_json else "text/csv"})
     fulfill_req_with_args = partial(fulfill_req, is_json=is_json, session=session)
-    pool.map(fulfill_req_with_args, ticks_format)
+    pool.map(fulfill_req_with_args, tickers_format)
     pool.close()
     pool.join()
     print(f"\n\ndownload end: {datetime.now()}\n")
 
 
 if __name__ == "__main__":
-    dwn_data()
+    dwn_data(select=None, is_json=True)

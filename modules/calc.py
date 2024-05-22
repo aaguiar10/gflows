@@ -2,7 +2,7 @@ import pandas as pd
 import exchange_calendars as xcals
 import numpy as np
 import orjson
-from scipy.stats import norm
+import modules.stats as stats
 from yahooquery import Ticker
 from datetime import datetime, timedelta
 from pytz import timezone
@@ -17,53 +17,6 @@ from os import getcwd
 simplefilter(action="ignore", category=RuntimeWarning)
 
 pd.options.display.float_format = "{:,.4f}".format
-
-
-# S is spot price, K is strike price, vol is implied volatility
-# T is time to expiration, r is risk-free rate, q is dividend yield
-def calc_dp_cdf_pdf(S, K, vol, T, r, q):
-    dp = (np.log(S / K) + (r - q + 0.5 * vol**2) * T) / (vol * np.sqrt(T))
-    cdf_dp = norm.cdf(dp)
-    pdf_dp = norm.pdf(dp)
-    return dp, cdf_dp, pdf_dp
-
-
-# Black-Scholes Pricing Formula
-def calc_delta_ex(S, T, q, opt_type, OI, cdf_dp):
-    if opt_type == "call":
-        delta = np.exp(-q * T) * cdf_dp
-    else:
-        delta = -np.exp(-q * T) * (1 - cdf_dp)
-    # change in option price per one percent move in underlying
-    return delta * OI * S
-
-
-def calc_gamma_ex(S, vol, T, q, OI, pdf_dp):
-    gamma = np.exp(-q * T) * pdf_dp / (S * vol * np.sqrt(T))
-    # change in delta per one percent move in underlying
-    return gamma * OI * S * S  # Gamma is same formula for calls and puts
-
-
-def calc_vanna_ex(S, vol, T, q, OI, dp, pdf_dp):
-    dm = dp - vol * np.sqrt(T)
-    vanna = -np.exp(-q * T) * pdf_dp * (dm / vol)
-    # change in delta per one percent move in IV
-    # or change in vega per one percent move in underlying
-    return vanna * OI * S * vol  # Vanna is same formula for calls and puts
-
-
-def calc_charm_ex(S, vol, T, r, q, opt_type, OI, dp, cdf_dp, pdf_dp):
-    dm = dp - vol * np.sqrt(T)
-    if opt_type == "call":
-        charm = (q * np.exp(-q * T) * cdf_dp) - np.exp(-q * T) * pdf_dp * (
-            2 * (r - q) * T - dm * vol * np.sqrt(T)
-        ) / (2 * T * vol * np.sqrt(T))
-    else:
-        charm = (-q * np.exp(-q * T) * (1 - cdf_dp)) - np.exp(-q * T) * pdf_dp * (
-            2 * (r - q) * T - dm * vol * np.sqrt(T)
-        ) / (2 * T * vol * np.sqrt(T))
-    # change in delta per day until expiration
-    return charm * OI * S * T
 
 
 @cached(cache=TTLCache(maxsize=16, ttl=60 * 60 * 4))  # in-memory cache for 4 hrs
@@ -169,8 +122,8 @@ def calc_exposures(
     today_ddt,
     today_ddt_string,
 ):
-    dividend_yield = 0  # assume 0
-    yield_10yr = check_ten_yr(first_expiry)
+    dividend_yield = 0.0  # assume 0
+    yield_10yr = check_ten_yr(today_ddt)
 
     monthly_options_dates = [first_expiry, this_monthly_opex]
 
@@ -184,17 +137,18 @@ def calc_exposures(
 
     nonzero_call_cond = (time_till_exp > 0) & (opt_call_ivs > 0)
     nonzero_put_cond = (time_till_exp > 0) & (opt_put_ivs > 0)
+    np_spot_price = np.array([[spot_price]])
 
-    call_dp, call_cdf_dp, call_pdf_dp = calc_dp_cdf_pdf(
-        spot_price,
+    call_dp, call_cdf_dp, call_pdf_dp = stats.calc_dp_cdf_pdf(
+        np_spot_price,
         strike_prices,
         opt_call_ivs,
         time_till_exp,
         yield_10yr,
         dividend_yield,
     )
-    put_dp, put_cdf_dp, put_pdf_dp = calc_dp_cdf_pdf(
-        spot_price,
+    put_dp, put_cdf_dp, put_pdf_dp = stats.calc_dp_cdf_pdf(
+        np_spot_price,
         strike_prices,
         opt_put_ivs,
         time_till_exp,
@@ -227,34 +181,34 @@ def calc_exposures(
     )
     option_data["call_vex"] = np.where(
         nonzero_call_cond,
-        calc_vanna_ex(
-            spot_price,
+        stats.calc_vanna_ex(
+            np_spot_price,
             opt_call_ivs,
             time_till_exp,
             dividend_yield,
             call_open_interest,
             call_dp,
             call_pdf_dp,
-        ),
+        )[0],
         0,
     )
     option_data["put_vex"] = np.where(
         nonzero_put_cond,
-        calc_vanna_ex(
-            spot_price,
+        stats.calc_vanna_ex(
+            np_spot_price,
             opt_put_ivs,
             time_till_exp,
             dividend_yield,
             put_open_interest,
             put_dp,
             put_pdf_dp,
-        ),
+        )[0],
         0,
     )
     option_data["call_cex"] = np.where(
         nonzero_call_cond,
-        calc_charm_ex(
-            spot_price,
+        stats.calc_charm_ex(
+            np_spot_price,
             opt_call_ivs,
             time_till_exp,
             yield_10yr,
@@ -264,13 +218,13 @@ def calc_exposures(
             call_dp,
             call_cdf_dp,
             call_pdf_dp,
-        ),
+        )[0],
         0,
     )
     option_data["put_cex"] = np.where(
         nonzero_put_cond,
-        calc_charm_ex(
-            spot_price,
+        stats.calc_charm_ex(
+            np_spot_price,
             opt_put_ivs,
             time_till_exp,
             yield_10yr,
@@ -280,7 +234,7 @@ def calc_exposures(
             put_dp,
             put_cdf_dp,
             put_pdf_dp,
-        ),
+        )[0],
         0,
     )
     # Calculate total and scale down
@@ -310,7 +264,7 @@ def calc_exposures(
     )
     # filter strikes / expirations for relevance
     df_agg_strike_mean = df_agg_strike_mean[from_strike:to_strike]
-    df_agg_exp_mean = df_agg_exp_mean[: today_ddt + timedelta(weeks=52)]
+    # df_agg_exp_mean = df_agg_exp_mean[: today_ddt + timedelta(weeks=52)]
 
     call_ivs = {
         "strike": df_agg_strike_mean["call_iv"].to_numpy(),
@@ -346,7 +300,7 @@ def calc_exposures(
     }
 
     # For each spot level, calculate greek exposure at that point
-    call_dp, call_cdf_dp, call_pdf_dp = calc_dp_cdf_pdf(
+    call_dp, call_cdf_dp, call_pdf_dp = stats.calc_dp_cdf_pdf(
         levels,
         strike_prices,
         opt_call_ivs,
@@ -354,7 +308,7 @@ def calc_exposures(
         yield_10yr,
         dividend_yield,
     )
-    put_dp, put_cdf_dp, put_pdf_dp = calc_dp_cdf_pdf(
+    put_dp, put_cdf_dp, put_pdf_dp = stats.calc_dp_cdf_pdf(
         levels,
         strike_prices,
         opt_put_ivs,
@@ -364,7 +318,7 @@ def calc_exposures(
     )
     call_delta_ex = np.where(
         nonzero_call_cond,
-        calc_delta_ex(
+        stats.calc_delta_ex(
             levels,
             time_till_exp,
             dividend_yield,
@@ -376,7 +330,7 @@ def calc_exposures(
     )
     put_delta_ex = np.where(
         nonzero_put_cond,
-        calc_delta_ex(
+        stats.calc_delta_ex(
             levels,
             time_till_exp,
             dividend_yield,
@@ -388,7 +342,7 @@ def calc_exposures(
     )
     call_gamma_ex = np.where(
         nonzero_call_cond,
-        calc_gamma_ex(
+        stats.calc_gamma_ex(
             levels,
             opt_call_ivs,
             time_till_exp,
@@ -400,7 +354,7 @@ def calc_exposures(
     )
     put_gamma_ex = np.where(
         nonzero_put_cond,
-        calc_gamma_ex(
+        stats.calc_gamma_ex(
             levels,
             opt_put_ivs,
             time_till_exp,
@@ -412,7 +366,7 @@ def calc_exposures(
     )
     call_vanna_ex = np.where(
         nonzero_call_cond,
-        calc_vanna_ex(
+        stats.calc_vanna_ex(
             levels,
             opt_call_ivs,
             time_till_exp,
@@ -425,7 +379,7 @@ def calc_exposures(
     )
     put_vanna_ex = np.where(
         nonzero_put_cond,
-        calc_vanna_ex(
+        stats.calc_vanna_ex(
             levels,
             opt_put_ivs,
             time_till_exp,
@@ -438,7 +392,7 @@ def calc_exposures(
     )
     call_charm_ex = np.where(
         nonzero_call_cond,
-        calc_charm_ex(
+        stats.calc_charm_ex(
             levels,
             opt_call_ivs,
             time_till_exp,
@@ -454,7 +408,7 @@ def calc_exposures(
     )
     put_charm_ex = np.where(
         nonzero_put_cond,
-        calc_charm_ex(
+        stats.calc_charm_ex(
             levels,
             opt_put_ivs,
             time_till_exp,
