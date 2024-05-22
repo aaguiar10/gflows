@@ -314,7 +314,11 @@ def check_cache_key(n_intervals, stock, expiration, fig):
         and (
             data["today_ddt_string"]
             not in fig["layout"]["title"]["text"].replace("<br>", " ")
-            or data["spot_price"] != fig["layout"]["shapes"][0]["x0"]
+            or (
+                "shapes" in fig["layout"]
+                and "name" in fig["layout"]["shapes"][-1]
+                and data["spot_price"] != fig["layout"]["shapes"][-1]["x0"]
+            )
         )
     ):  # refresh on current selection if client data differs from server cache
         return data, 0
