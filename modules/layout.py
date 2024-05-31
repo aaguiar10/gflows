@@ -4,6 +4,10 @@ from yahooquery import Ticker
 from os import environ
 
 
+def format_ticker(ticker):
+    return f"{ticker[1:]}" if ticker[0] == "^" else ticker
+
+
 def serve_layout():
     tickers = (environ.get("TICKERS") or "^SPX,^NDX,^RUT").strip().split(",")
     ticker_info = Ticker(tickers).quote_type
@@ -63,8 +67,13 @@ def serve_layout():
                     id="tabs",
                     children=[
                         dbc.Tab(
-                            label=ticker_info[ticker]["longName"],
-                            tab_id=f"{ticker[1:]}" if ticker[0] == "^" else ticker,
+                            label=(
+                                f"{ticker_info[ticker]['longName']} ({format_ticker(ticker)})"
+                                if isinstance(ticker_info[ticker], dict)
+                                else format_ticker(ticker)
+                            ),
+                            tab_id=format_ticker(ticker),
+                            active_label_class_name="fw-bold",
                         )
                         for ticker in tickers
                     ],

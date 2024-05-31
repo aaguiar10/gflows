@@ -60,23 +60,26 @@ def analyze_data(ticker, expir):
         is_json=True,  # False for CSV
         tz="America/New_York",
     )
-    if not result:
-        result = (None,) * 16
+    return result if result else (None,) * 16
+
+
+def cache_data(ticker, expir):
+    data = analyze_data(ticker, expir)
     if not cache.has(f"{ticker}_{expir}"):
         cache.set(  # for client/server sync
             f"{ticker}_{expir}",
             {
                 "ticker": ticker,
                 "expiration": expir,
-                "spot_price": result[4],
-                "monthly_options_dates": result[3],
-                "today_ddt": result[1],
-                "today_ddt_string": result[2],
-                "zero_delta": result[12],
-                "zero_gamma": result[13],
+                "spot_price": data[4],
+                "monthly_options_dates": data[3],
+                "today_ddt": data[1],
+                "today_ddt_string": data[2],
+                "zero_delta": data[12],
+                "zero_gamma": data[13],
             },
         )
-    return result
+    return data
 
 
 def sensor(select=None):
@@ -300,7 +303,7 @@ def on_click(btn1, btn2, btn3, btn4, active_page, value, greek):
 def check_cache_key(n_intervals, stock, expiration, fig):
     data = cache.get(f"{stock.lower()}_{expiration}")
     if not data and stock and expiration:
-        analyze_data(stock.lower(), expiration)
+        cache_data(stock.lower(), expiration)
     if (
         data
         and (fig and fig["data"])
@@ -426,7 +429,7 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
         zerogamma,
         call_ivs,
         put_ivs,
-    ) = analyze_data(stock.lower(), expiration)
+    ) = cache_data(stock.lower(), expiration)
 
     # chart theme and layout
     xaxis, yaxis = dict(
