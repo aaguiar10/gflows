@@ -50,12 +50,12 @@ def serve_layout():
                         placement="left",
                     ),
                 ],
-                class_name="d-flex justify-content-end m-auto mt-2",
+                class_name="d-flex justify-content-end mx-auto my-2",
             ),
             dbc.Row(
                 html.Div(
                     html.H2("G|Flows"),
-                    className="m-auto d-flex justify-content-center",
+                    className="mx-auto d-flex justify-content-center",
                 )
             ),
             dcc.Interval(

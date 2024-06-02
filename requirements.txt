@@ -8,7 +8,7 @@ scipy==1.13.0
 dash-bootstrap-components==1.6.0
 gunicorn==22.0.0
 APScheduler==3.10.4
-requests==2.31.0
+requests==2.32.3
 exchange_calendars==4.5.4
 dateparser==1.2.0
 orjson==3.10.3
