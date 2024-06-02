@@ -77,7 +77,7 @@ def serve_layout():
                         )
                         for ticker in tickers
                     ],
-                    class_name="fs-5 p-0 nav-fill",
+                    class_name="fs-5 px-4 nav-fill",
                     persistence=True,
                     persistence_type="local",
                 )
