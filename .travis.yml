@@ -1,0 +1,10 @@
+language: python
+python:
+  - "3.9"
+
+deploy:
+  provider: script
+  skip_cleanup: true
+  script: ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP 'cd /root/gflows_git/gflows && git pull && ./deploy.sh'
+  on:
+    branch: main
