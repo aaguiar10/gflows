@@ -15,7 +15,7 @@ from modules.layout import serve_layout
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers import cron, combining
 from datetime import timedelta
-from pytz import timezone
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from os import environ
 
@@ -114,10 +114,10 @@ sched.add_job(
     combining.OrTrigger(
         [
             cron.CronTrigger.from_crontab(
-                "0,15,30,45 9-15 * * 0-4", timezone=timezone("America/New_York")
+                "0,15,30,45 9-15 * * 0-4", timezone=ZoneInfo("America/New_York")
             ),
             cron.CronTrigger.from_crontab(
-                "0,15,30 16 * * 0-4", timezone=timezone("America/New_York")
+                "0,15,30 16 * * 0-4", timezone=ZoneInfo("America/New_York")
             ),
         ]
     ),
@@ -130,14 +130,14 @@ sched.add_job(
                 day_of_week="0-4",
                 hour="9-15",
                 second="*/5",
-                timezone=timezone("America/New_York"),
+                timezone=ZoneInfo("America/New_York"),
             ),
             cron.CronTrigger(
                 day_of_week="0-4",
                 hour="16",
                 minute="0-30",
                 second="*/5",
-                timezone=timezone("America/New_York"),
+                timezone=ZoneInfo("America/New_York"),
             ),
         ]  # during the specified times, check every 5 seconds for a retry condition
     ),

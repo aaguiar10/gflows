@@ -114,6 +114,5 @@ dmypy.json
 .pyre/
 
 # local
-data/all_exp/
-data/monthly_exp/
+data/
 *.DS_Store

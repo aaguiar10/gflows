@@ -3,20 +3,25 @@ import exchange_calendars as xcals
 import numpy as np
 import orjson
 import modules.stats as stats
-from yahooquery import Ticker
+from yfinance import Ticker
 from datetime import datetime, timedelta
-from pytz import timezone
+from zoneinfo import ZoneInfo
 from dateparser.date import DateDataParser
 from warnings import simplefilter
 from calendar import monthrange
 from cachetools import cached, TTLCache
 from pathlib import Path
 from os import getcwd
+from re import compile
 
 # Ignore warning for NaN values in dataframe
 simplefilter(action="ignore", category=RuntimeWarning)
 
 pd.options.display.float_format = "{:,.4f}".format
+
+# Precompile regex patterns for performance
+_strike_regex = compile(r"\d[A-Z](\d+)\d\d\d")
+_exp_date_regex = compile(r"[A-Z](\d+)")
 
 
 @cached(cache=TTLCache(maxsize=16, ttl=60 * 60 * 4))  # in-memory cache for 4 hrs
@@ -30,10 +35,10 @@ def is_third_friday(date, tz):
     for i in result:
         if i.weekday() == 4 and 15 <= i.day <= 21 and i.month == date.month:
             # Third Friday
-            found[0] = timezone(tz).localize(i) + timedelta(hours=16)
+            found[0] = i.replace(tzinfo=ZoneInfo(tz)) + timedelta(hours=16)
         elif i.weekday() == 3 and 15 <= i.day <= 21 and i.month == date.month:
             # Thursday alternative
-            found[1] = timezone(tz).localize(i) + timedelta(hours=16)
+            found[1] = i.replace(tzinfo=ZoneInfo(tz)) + timedelta(hours=16)
     # returns Third Friday if market open,
     # else if market closed returns the Thursday before it
     return (found[0], result) if found[0] else (found[1], result)
@@ -48,7 +53,7 @@ def check_ten_yr(date):
         return check_ten_yr(date - timedelta(days=2))
     else:
         # most recent date
-        return data.tail(1)["close"].item() / 100
+        return data.tail(1)["Close"].item() / 100
 
 
 def is_parsable(date):
@@ -89,10 +94,8 @@ def format_data(data, today_ddt, tzinfo):
         ],
         axis=1,
     )
-    data["strike_price"] = (
-        data["calls"].str.extract(r"\d[A-Z](\d+)\d\d\d").astype(float)
-    )
-    data["expiration_date"] = data["calls"].str.extract(r"[A-Z](\d+)")
+    data["strike_price"] = data["calls"].str.extract(_strike_regex).astype(float)
+    data["expiration_date"] = data["calls"].str.extract(_exp_date_regex)
     data["expiration_date"] = pd.to_datetime(
         data["expiration_date"], format="%y%m%d"
     ).dt.tz_localize(tzinfo) + timedelta(hours=16)
@@ -569,7 +572,7 @@ def get_options_data_json(ticker, expir, tz):
     if expir == "monthly":
         option_data = option_data[
             option_data["expiration_date"]
-            <= timezone(tz).localize(calendar_range[-1]) + timedelta(hours=16)
+            <= (calendar_range[-1].replace(tzinfo=ZoneInfo(tz)) + timedelta(hours=16))
         ]
     elif expir == "0dte":
         option_data = option_data[option_data["expiration_date"] == first_expiry]
@@ -696,7 +699,7 @@ def get_options_data_csv(ticker, expir, tz):
     if expir == "monthly":
         option_data = option_data[
             option_data["expiration_date"]
-            <= timezone(tz).localize(calendar_range[-1]) + timedelta(hours=16)
+            <= (calendar_range[-1].replace(tzinfo=ZoneInfo(tz)) + timedelta(hours=16))
         ]
     elif expir == "0dte":
         option_data = option_data[option_data["expiration_date"] == first_expiry]

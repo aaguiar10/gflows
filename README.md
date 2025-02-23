@@ -22,7 +22,7 @@ G|Flows, or Greek Flows, provides 15-minute updates for the SPX, NDX, and RUT in
 
 ## Setup
 
-This application is compatible with Python versions **>=3.9**
+This application is compatible with Python versions **>=3.10**
 
 ### Virtual Environment (Recommended)
 
@@ -83,10 +83,10 @@ sched.add_job(
     combining.OrTrigger(
         [
             cron.CronTrigger.from_crontab(
-                "0,15,30,45 9-15 * * 0-4", timezone=timezone("America/New_York")
+                "0,15,30,45 9-15 * * 0-4", timezone=ZoneInfo("America/New_York")
             ),
             cron.CronTrigger.from_crontab(
-                "0,15,30 16 * * 0-4", timezone=timezone("America/New_York")
+                "0,15,30 16 * * 0-4", timezone=ZoneInfo("America/New_York")
             ),
         ]
     ),
@@ -99,14 +99,14 @@ sched.add_job(
                 day_of_week="0-4",
                 hour="9-15",
                 second="*/5",
-                timezone=timezone("America/New_York"),
+                timezone=ZoneInfo("America/New_York"),
             ),
             cron.CronTrigger(
                 day_of_week="0-4",
                 hour="16",
                 minute="0-30",
                 second="*/5",
-                timezone=timezone("America/New_York"),
+                timezone=ZoneInfo("America/New_York"),
             ),
         ]  # during the specified times, check every 5 seconds for a retry condition
     ),

@@ -1,6 +1,6 @@
 from dash import html, dcc
 import dash_bootstrap_components as dbc
-from yahooquery import Ticker
+from yfinance import Tickers
 from os import environ
 
 
@@ -9,8 +9,9 @@ def format_ticker(ticker):
 
 
 def serve_layout():
-    tickers = (environ.get("TICKERS") or "^SPX,^NDX,^RUT").strip().split(",")
-    ticker_info = Ticker(tickers).quote_type
+    tickers_list = (environ.get("TICKERS") or "^SPX,^NDX,^RUT").strip().split(",")
+    tickers = Tickers(tickers_list)
+    ticker_info = {ticker: tickers.tickers[ticker].info for ticker in tickers_list}
     return dbc.Container(
         [
             dcc.Store(
@@ -20,6 +21,16 @@ def serve_layout():
             ),
             dbc.Row(
                 children=[
+                    dbc.Button(
+                        "What's Next",
+                        color="info",
+                        size="sm",
+                        class_name="px-2",
+                        outline=True,
+                        href="https://beta.gflows.app",
+                        external_link=True,
+                        style={"width": "fit-content"},
+                    ),
                     dbc.Button(
                         html.I(className="bi bi-info"),
                         color="info",
@@ -50,7 +61,7 @@ def serve_layout():
                         placement="left",
                     ),
                 ],
-                class_name="d-flex justify-content-end mx-auto my-2",
+                class_name="d-flex justify-content-between align-items-center mx-auto my-2",
             ),
             dbc.Row(
                 html.Div(
@@ -75,7 +86,7 @@ def serve_layout():
                             tab_id=format_ticker(ticker),
                             active_label_class_name="fw-bold",
                         )
-                        for ticker in tickers
+                        for ticker in tickers_list
                     ],
                     class_name="fs-5 px-4 nav-fill",
                     persistence=True,
@@ -390,7 +401,7 @@ def serve_layout():
                                         style={"width": "30px", "height": "auto"},
                                     ),
                                     html.Span(
-                                        "Support the Creator",
+                                        "Support Development",
                                         className="ms-1",
                                         style={"fontSize": "14px"},
                                     ),
@@ -408,6 +419,7 @@ def serve_layout():
                                         src="https://ko-fi.com/aaguiar/?hidefeed=true&widget=true&embed=true&preview=true",
                                         style={
                                             "border": "none",
+                                            "borderRadius": "0.5rem",
                                             "width": "100%",
                                             "padding": "0.25rem",
                                             "background": "#fff",
@@ -426,8 +438,8 @@ def serve_layout():
                                     ),
                                     class_name="d-flex justify-content-center",
                                     style={
-                                        "borderTop": "2px solid rgba(0,0,0,.5)",
                                         "fontSize": "0.9rem",
+                                        "backgroundColor": "transparent",
                                     },
                                 ),
                             ],
