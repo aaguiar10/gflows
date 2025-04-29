@@ -114,5 +114,4 @@ dmypy.json
 .pyre/
 
 # local
-data/
 *.DS_Store
