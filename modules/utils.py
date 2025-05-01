@@ -3,6 +3,8 @@ import yfinance.data as _data
 from yfinance import Ticker, Tickers
 from curl_cffi import requests as curl_requests
 
+_shared_session = curl_requests.Session(impersonate="chrome")
+
 
 def _wrap_cookie(cookie, session):
     """
@@ -30,14 +32,9 @@ def patch_yf():
     _data.YfData._get_cookie_basic = _patched
 
 
-def _get_session():
-    """Creates and returns a curl_cffi session."""
-    return curl_requests.Session(impersonate="chrome")
-
-
 def yf_ticker(symbol, **kwargs):
     """
-    Creates a yfinance Ticker object with a pre-configured session.
+    Creates a yfinance Ticker object with the shared pre-configured session.
 
     Args:
         symbol (str): The ticker symbol.
@@ -46,13 +43,12 @@ def yf_ticker(symbol, **kwargs):
     Returns:
         yf.Ticker: An initialized Ticker object.
     """
-    session = _get_session()
-    return Ticker(symbol, session=session, **kwargs)
+    return Ticker(symbol, session=_shared_session, **kwargs)
 
 
 def yf_tickers(symbols, **kwargs):
     """
-    Creates a yfinance Tickers object with a pre-configured session.
+    Creates a yfinance Tickers object with the shared pre-configured session.
 
     Args:
         symbols (list or str): A list of ticker symbols or a space-separated string.
@@ -61,5 +57,4 @@ def yf_tickers(symbols, **kwargs):
     Returns:
         yf.Tickers: An initialized Tickers object.
     """
-    session = _get_session()
-    return Tickers(symbols, session=session, **kwargs)
+    return Tickers(symbols, session=_shared_session, **kwargs)
