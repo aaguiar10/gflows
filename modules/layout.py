@@ -1,6 +1,6 @@
 from dash import html, dcc
 import dash_bootstrap_components as dbc
-from modules.utils import yf_tickers as Tickers
+from yfinance import Tickers
 from os import environ
 
 

@@ -12,7 +12,6 @@ from flask_caching import Cache
 from modules.calc import get_options_data
 from modules.ticker_dwn import dwn_data
 from modules.layout import serve_layout
-from modules.utils import patch_yf
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers import cron, combining
 from datetime import timedelta
@@ -21,8 +20,6 @@ from dotenv import load_dotenv
 from os import environ
 
 load_dotenv()  # load environment variables from .env
-
-patch_yf()  # Apply the patch
 
 app = Dash(
     __name__,

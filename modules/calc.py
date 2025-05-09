@@ -3,7 +3,7 @@ import exchange_calendars as xcals
 import numpy as np
 import orjson
 import modules.stats as stats
-from modules.utils import yf_ticker as Ticker
+from yfinance import Ticker
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from dateparser.date import DateDataParser
