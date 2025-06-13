@@ -366,9 +366,15 @@ def handle_menu(btn1, btn2, stock, expiration, active_page, value, fig):
     filename = f"{prefix}_{chart_name}_{exp_date}__{formatted_date}.csv"
 
     df_agg = DataFrame(
-        data=zip(*[item["y"] for item in fig_data if item["y"]]),
-        index=fig_data[0]["x"],
-        columns=[item["name"] for item in fig_data if item["y"]],
+        data=zip(
+            *[
+                [v for k, v in item["y"]["_inputArray"].items() if k.isdigit()]
+                for item in fig_data
+                if item["y"]["_inputArray"]
+            ]
+        ),
+        index=[v for k, v in fig_data[0]["x"]["_inputArray"].items() if k.isdigit()],
+        columns=[item["name"] for item in fig_data if item["y"]["_inputArray"]],
     )
     df_agg.index.name = prefix
 
