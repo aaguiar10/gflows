@@ -365,16 +365,60 @@ def handle_menu(btn1, btn2, stock, expiration, active_page, value, fig):
     chart_name = value.replace(" ", "_")
     filename = f"{prefix}_{chart_name}_{exp_date}__{formatted_date}.csv"
 
+    # --- X-axis Data (DataFrame Index) Preparation ---
+
+    # Get the x-axis data from the figure
+    x_data_source = fig_data[0].get("x")
+
+    if x_data_source is None:
+        raise PreventUpdate("X-axis data (fig_data[0]['x']) is missing.")
+
+    # Determine how to extract index values based on the type of x_data_source
+    if isinstance(x_data_source, list):
+        index_values = x_data_source
+    elif isinstance(x_data_source, dict) and "_inputArray" in x_data_source:
+        input_array = x_data_source.get("_inputArray")
+        if isinstance(input_array, dict):
+            # Extract values from the dictionary where keys are digits
+            index_values = [v for k, v in input_array.items() if k.isdigit()]
+        else:
+            raise PreventUpdate("fig_data[0]['x']['_inputArray'] is not a dictionary.")
+    else:
+        raise PreventUpdate(
+            f"Unrecognized type for fig_data[0]['x']: {type(x_data_source)}."
+        )
+
+    # --- Y-axis Data (DataFrame Columns) Preparation ---
+
+    # Extract y-series data and column names
+    def extract_series_data(item):
+        y_component = item.get("y")
+        series_name = item.get("name", "Unnamed Series")
+
+        if isinstance(y_component, dict) and "_inputArray" in y_component:
+            input_array = y_component.get("_inputArray")
+            if isinstance(input_array, dict) and input_array:
+                series_values = [v for k, v in input_array.items() if k.isdigit()]
+                return (series_values, series_name) if series_values else None
+        elif isinstance(y_component, list) and y_component:
+            return (y_component, series_name)
+        return None
+
+    valid_series = [
+        result for item in fig_data if (result := extract_series_data(item)) is not None
+    ]
+
+    if not valid_series:
+        raise PreventUpdate("No data series with values found to create DataFrame.")
+
+    y_series_data, column_names = zip(*valid_series)
+
+    # --- DataFrame Creation ---
+
     df_agg = DataFrame(
-        data=zip(
-            *[
-                [v for k, v in item["y"]["_inputArray"].items() if k.isdigit()]
-                for item in fig_data
-                if item["y"]["_inputArray"]
-            ]
-        ),
-        index=[v for k, v in fig_data[0]["x"]["_inputArray"].items() if k.isdigit()],
-        columns=[item["name"] for item in fig_data if item["y"]["_inputArray"]],
+        data=list(zip(*y_series_data)),
+        index=index_values,
+        columns=column_names,
     )
     df_agg.index.name = prefix
 
@@ -664,8 +708,8 @@ def update_live_chart(value, stock, expiration, active_page, refresh, toggle_dar
             }
             all_ex, ex_next, ex_fri = name_to_vals[name]
             fig.add_trace(go.Scatter(x=levels, y=all_ex, name="All Expiries"))
-            fig.add_trace(go.Scatter(x=levels, y=ex_next, name="Next Expiry"))
             fig.add_trace(go.Scatter(x=levels, y=ex_fri, name="Next Monthly Expiry"))
+            fig.add_trace(go.Scatter(x=levels, y=ex_next, name="Next Expiry"))
             # show - &/or + areas of exposure depending on condition
             if name == "Charm" or name == "Vanna":
                 all_ex_min, all_ex_max = all_ex.min(), all_ex.max()

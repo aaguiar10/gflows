@@ -13,7 +13,7 @@ G|Flows, or Greek Flows, provides 15-minute updates for the SPX, NDX, and RUT in
 
 - All expirations
 - Current month
-- Current monthly OPEX
+- Current monthly OPEX (all expirations up to OPEX)
 - 0DTE, if available, otherwise the closest expiration
 
 ### Guide:

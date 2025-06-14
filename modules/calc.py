@@ -435,43 +435,43 @@ def calc_exposures(
     # charm exposure
     totalcharm["all"] = (call_charm_ex.sum(axis=1) - put_charm_ex.sum(axis=1)) / 10**9
 
-    expirs_not_first_expiry = expirations != first_expiry
-    expirs_not_this_monthly_opex = expirations != this_monthly_opex
+    expirs_next_expiry = expirations == first_expiry
+    expirs_up_to_monthly_opex = expirations <= this_monthly_opex
     if expir != "0dte":
         # exposure for next expiry
         totaldelta["ex_next"] = (
-            np.where(expirs_not_first_expiry, call_delta_ex, 0).sum(axis=1)
-            + np.where(expirs_not_first_expiry, put_delta_ex, 0).sum(axis=1)
+            np.where(expirs_next_expiry, call_delta_ex, 0).sum(axis=1)
+            + np.where(expirs_next_expiry, put_delta_ex, 0).sum(axis=1)
         ) / 10**9
         totalgamma["ex_next"] = (
-            np.where(expirs_not_first_expiry, call_gamma_ex, 0).sum(axis=1)
-            - np.where(expirs_not_first_expiry, put_gamma_ex, 0).sum(axis=1)
+            np.where(expirs_next_expiry, call_gamma_ex, 0).sum(axis=1)
+            - np.where(expirs_next_expiry, put_gamma_ex, 0).sum(axis=1)
         ) / 10**9
         totalvanna["ex_next"] = (
-            np.where(expirs_not_first_expiry, call_vanna_ex, 0).sum(axis=1)
-            - np.where(expirs_not_first_expiry, put_vanna_ex, 0).sum(axis=1)
+            np.where(expirs_next_expiry, call_vanna_ex, 0).sum(axis=1)
+            - np.where(expirs_next_expiry, put_vanna_ex, 0).sum(axis=1)
         ) / 10**9
         totalcharm["ex_next"] = (
-            np.where(expirs_not_first_expiry, call_charm_ex, 0).sum(axis=1)
-            - np.where(expirs_not_first_expiry, put_charm_ex, 0).sum(axis=1)
+            np.where(expirs_next_expiry, call_charm_ex, 0).sum(axis=1)
+            - np.where(expirs_next_expiry, put_charm_ex, 0).sum(axis=1)
         ) / 10**9
         if expir == "all":
             # exposure for next monthly opex
             totaldelta["ex_fri"] = (
-                np.where(expirs_not_this_monthly_opex, call_delta_ex, 0).sum(axis=1)
-                + np.where(expirs_not_this_monthly_opex, put_delta_ex, 0).sum(axis=1)
+                np.where(expirs_up_to_monthly_opex, call_delta_ex, 0).sum(axis=1)
+                + np.where(expirs_up_to_monthly_opex, put_delta_ex, 0).sum(axis=1)
             ) / 10**9
             totalgamma["ex_fri"] = (
-                np.where(expirs_not_this_monthly_opex, call_gamma_ex, 0).sum(axis=1)
-                - np.where(expirs_not_this_monthly_opex, put_gamma_ex, 0).sum(axis=1)
+                np.where(expirs_up_to_monthly_opex, call_gamma_ex, 0).sum(axis=1)
+                - np.where(expirs_up_to_monthly_opex, put_gamma_ex, 0).sum(axis=1)
             ) / 10**9
             totalvanna["ex_fri"] = (
-                np.where(expirs_not_this_monthly_opex, call_vanna_ex, 0).sum(axis=1)
-                - np.where(expirs_not_this_monthly_opex, put_vanna_ex, 0).sum(axis=1)
+                np.where(expirs_up_to_monthly_opex, call_vanna_ex, 0).sum(axis=1)
+                - np.where(expirs_up_to_monthly_opex, put_vanna_ex, 0).sum(axis=1)
             ) / 10**9
             totalcharm["ex_fri"] = (
-                np.where(expirs_not_this_monthly_opex, call_charm_ex, 0).sum(axis=1)
-                - np.where(expirs_not_this_monthly_opex, put_charm_ex, 0).sum(axis=1)
+                np.where(expirs_up_to_monthly_opex, call_charm_ex, 0).sum(axis=1)
+                - np.where(expirs_up_to_monthly_opex, put_charm_ex, 0).sum(axis=1)
             ) / 10**9
 
     # Find Delta Flip Point
