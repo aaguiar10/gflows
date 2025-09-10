@@ -2,20 +2,29 @@ import json
 import re
 import functools
 from typing import List
-from datetime import datetime
+from datetime import datetime, time
 import tensorflow as tf
 import tf_quant_finance as tff
 from cboe_exchange.dataclasses import CBOEData, CBOEStockData, CBOEOption
 
 def get_time_to_expiry(timetag, expire_date):
     """
-    Calculates the time to expiry in years.
+    Calculates the time to expiry in years, with expiry time set to 15:00:00.
     """
     try:
-        current_date = datetime.strptime(timetag.split(" ")[0], "%Y%m%d")
+        current_datetime = datetime.strptime(timetag, "%Y%m%d %H:%M:%S")
         expiry_date_obj = datetime.strptime(str(expire_date), "%Y%m%d")
-        time_to_expiry = (expiry_date_obj - current_date).days / 365.25
-        return time_to_expiry
+
+        # Combine expiry date with the fixed time 15:00:00
+        expiry_datetime = datetime.combine(expiry_date_obj.date(), time(15, 0, 0))
+
+        time_delta = expiry_datetime - current_datetime
+
+        # Calculate time to expiry in years, using 365 days
+        seconds_in_year = 365 * 24 * 60 * 60
+        time_to_expiry = time_delta.total_seconds() / seconds_in_year
+
+        return time_to_expiry if time_to_expiry > 0 else 0.0
     except (ValueError, TypeError):
         return 0.0
 
@@ -104,7 +113,16 @@ def convert_szosho_to_cboe(file_path: str) -> List[CBOEData]:
     all_calculated_options = {}
 
     for (stock_symbol, expire_date), group_options in option_groups.items():
-        valid_options_in_group = [opt for opt in group_options if opt['expiry'] > 0 and opt['spot'] > 0 and opt['option_data'].get("lastPrice", 0.0) > 0]
+        # Add mid_price to each option dict for easier access and filtering
+        for opt in group_options:
+            bid = opt['option_data'].get("bidPrice")[0] if opt['option_data'].get("bidPrice") else 0.0
+            ask = opt['option_data'].get("askPrice")[0] if opt['option_data'].get("askPrice") else 0.0
+            if bid > 0 and ask > 0:
+                opt['mid_price'] = (bid + ask) / 2.0
+            else:
+                opt['mid_price'] = opt['option_data'].get("lastPrice", 0.0)
+
+        valid_options_in_group = [opt for opt in group_options if opt['expiry'] > 0 and opt['spot'] > 0 and opt.get('mid_price', 0.0) > 0]
 
         if not valid_options_in_group:
             continue
@@ -114,7 +132,7 @@ def convert_szosho_to_cboe(file_path: str) -> List[CBOEData]:
         expiry = tf.constant(valid_options_in_group[0]['expiry'], dtype=tf.float64)
 
         # Prices, strikes, and is_call are vectors for the group
-        prices = tf.constant([opt['option_data'].get("lastPrice", 0.0) for opt in valid_options_in_group], dtype=tf.float64)
+        prices = tf.constant([opt['mid_price'] for opt in valid_options_in_group], dtype=tf.float64)
         strikes = tf.constant([opt['strike'] for opt in valid_options_in_group], dtype=tf.float64)
         is_call_options = tf.constant([opt['is_call'] for opt in valid_options_in_group], dtype=tf.bool)
 
