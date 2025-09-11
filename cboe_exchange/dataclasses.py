@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 
 @dataclass
@@ -27,6 +27,9 @@ class CBOEOption:
     percent_change: float
     prev_day_close: float
 
+    def to_dict(self):
+        return asdict(self)
+
 @dataclass
 class CBOEStockData:
     symbol: str
@@ -53,8 +56,14 @@ class CBOEStockData:
     tick: str
     options: List[CBOEOption] = field(default_factory=list)
 
+    def to_dict(self):
+        return asdict(self)
+
 @dataclass
 class CBOEData:
     timestamp: str
     symbol: str
     data: CBOEStockData
+
+    def to_dict(self):
+        return asdict(self)

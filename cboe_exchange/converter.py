@@ -91,7 +91,7 @@ def convert_szosho_to_cboe(file_path: str) -> List[CBOEData]:
             strike_match = re.findall(r'\d+', instrument.get("InstrumentName"))
             if not strike_match:
                 continue
-            strike = float(strike_match[-1])
+            strike = float(strike_match[-1]) / 1000
             expiry = get_time_to_expiry(stock_data.get("timetag"), instrument.get("ExpireDate"))
             is_call = "购" in instrument.get("InstrumentName")
 
@@ -202,4 +202,4 @@ def convert_szosho_to_cboe(file_path: str) -> List[CBOEData]:
         )
         cboe_data_map[stock_symbol].data.options.append(option_obj)
 
-    return list(cboe_data_map.values())
+    return [data.to_dict() for data in cboe_data_map.values()]
