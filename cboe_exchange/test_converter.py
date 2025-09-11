@@ -1,7 +1,9 @@
 import unittest
 import os
 import json
-from cboe_exchange.converter import convert_szosho_to_cboe
+import re
+from cboe_exchange.converter import convert_szosho_to_cboe, _generate_stock_code
+from datetime import datetime
 
 class TestConverter(unittest.TestCase):
     def test_convert_szosho_to_cboe(self):
@@ -56,6 +58,35 @@ class TestConverter(unittest.TestCase):
 
         self.assertTrue(iv_calculated, "Implied volatility was not calculated for any option.")
         self.assertTrue(greeks_calculated, "Greeks were not calculated for any option.")
+
+        # Check the format of a specific option symbol
+        option_under_test = sh_510050_data['data']['options'][0]
+        option_symbol = option_under_test['option']
+
+        stock_code = _generate_stock_code(sh_510050_data['symbol'])
+
+        # Find the corresponding raw data to get the expire date and strike
+        raw_option_data = None
+        for key, value in raw_data.items():
+            if "SHO" in key or "SZO" in key:
+                instrument = value.get("Instrument", {})
+                strike_match = re.findall(r'\d+', instrument.get("InstrumentName"))
+                if not strike_match:
+                    continue
+                raw_strike = strike_match[-1]
+
+                expire_date_str = str(instrument.get("ExpireDate"))
+                expire_date = datetime.strptime(expire_date_str, "%Y%m%d").strftime("%y%m%d")
+                option_type = "C" if "购" in instrument.get("InstrumentName") else "P"
+                formatted_strike = raw_strike.zfill(8)
+
+                expected_symbol = f"{stock_code}{expire_date}{option_type}{formatted_strike}"
+                if option_symbol == expected_symbol:
+                    raw_option_data = value
+                    break
+
+        self.assertIsNotNone(raw_option_data, "Could not find matching raw option data for symbol format test")
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -28,6 +28,11 @@ def get_time_to_expiry(timetag, expire_date):
     except (ValueError, TypeError):
         return 0.0
 
+def _generate_stock_code(stock_symbol):
+    """Generates a stock code from a stock symbol."""
+    stock_code = stock_symbol.split('.')[0]
+    return ''.join([chr(ord('A') + int(c)) for c in stock_code])
+
 def convert_szosho_to_cboe(file_path: str) -> List[CBOEData]:
     """
     Parses a JSON file with stock and option data, calculates financial metrics,
@@ -91,13 +96,15 @@ def convert_szosho_to_cboe(file_path: str) -> List[CBOEData]:
             strike_match = re.findall(r'\d+', instrument.get("InstrumentName"))
             if not strike_match:
                 continue
-            strike = float(strike_match[-1]) / 1000
+
+            raw_strike = strike_match[-1]
+            strike = float(raw_strike) / 1000
             expiry = get_time_to_expiry(stock_data.get("timetag"), instrument.get("ExpireDate"))
             is_call = "购" in instrument.get("InstrumentName")
 
             options_to_process.append({
                 "option_symbol": option_symbol, "option_data": option_data, "stock_symbol": stock_symbol,
-                "spot": spot, "strike": strike, "expiry": expiry, "is_call": is_call
+                "spot": spot, "strike": strike, "raw_strike": raw_strike, "expiry": expiry, "is_call": is_call
             })
 
     # Group options by stock and expiry date
@@ -170,13 +177,19 @@ def convert_szosho_to_cboe(file_path: str) -> List[CBOEData]:
             all_calculated_options[opt['option_symbol']] = opt
 
     for opt_proc in options_to_process:
-        option_symbol = opt_proc['option_symbol']
         option_data = opt_proc['option_data']
         stock_symbol = opt_proc['stock_symbol']
-        calcs = all_calculated_options.get(option_symbol, {})
+        calcs = all_calculated_options.get(opt_proc['option_symbol'], {})
+
+        stock_code = _generate_stock_code(stock_symbol)
+        expire_date = datetime.strptime(str(option_data.get("Instrument", {}).get("ExpireDate")), "%Y%m%d").strftime("%y%m%d")
+        option_type = "C" if opt_proc['is_call'] else "P"
+        formatted_strike = opt_proc['raw_strike'].zfill(8)
+
+        new_option_symbol = f"{stock_code}{expire_date}{option_type}{formatted_strike}"
 
         option_obj = CBOEOption(
-            option=option_symbol,
+            option=new_option_symbol,
             bid=option_data.get("bidPrice")[0] if option_data.get("bidPrice") else 0.0,
             bid_size=option_data.get("bidVol")[0] if option_data.get("bidVol") else 0,
             ask=option_data.get("askPrice")[0] if option_data.get("askPrice") else 0.0,
