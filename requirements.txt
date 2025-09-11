@@ -14,6 +14,5 @@ dateparser==1.2.1
 orjson==3.10.18
 python-dotenv==1.1.0
 numba==0.61.2
-tf-quant-finance
 tensorflow
 tf-keras
