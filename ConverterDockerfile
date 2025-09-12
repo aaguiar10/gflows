@@ -4,9 +4,8 @@ FROM python:3.12-slim
 # Install Node.js, npm, and other dependencies
 RUN apt-get update && apt-get install -y nodejs npm git unzip
 
-# Install Bazelisk using npm and create a symlink for bazel
-RUN npm install -g @bazel/bazelisk && \
-    ln -s /usr/local/bin/bazelisk /usr/local/bin/bazel
+# Install Bazelisk using npm
+RUN npm install -g @bazel/bazelisk
 
 # Set the working directory in the container
 WORKDIR /app
@@ -20,7 +19,7 @@ COPY tff/ /app/tff/
 
 # Build and install tf_quant_finance from the submodule
 RUN cd tff && \
-    bazel build :build_pip_pkg && \
+    bazelisk build :build_pip_pkg && \
     ./bazel-bin/build_pip_pkg artifacts && \
     pip install artifacts/*.whl
 
