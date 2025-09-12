@@ -33,13 +33,12 @@ def _generate_stock_code(stock_symbol):
     stock_code = stock_symbol.split('.')[0]
     return ''.join([chr(ord('A') + int(c)) for c in stock_code])
 
-def convert_szosho_to_cboe(file_path: str) -> List[CBOEData]:
+def convert_szosho_to_cboe(szosho_data: dict) -> List[dict]:
     """
     Parses a JSON file with stock and option data, calculates financial metrics,
     and returns a list of CBOEData objects.
     """
-    with open(file_path, 'r') as f:
-        data = json.load(f)
+    data = szosho_data
 
     risk_free_rate = data.pop("RiskFreeRate", 0.0)
     stocks = {k: v for k, v in data.items() if ".SH" in k or ".SZ" in k}
