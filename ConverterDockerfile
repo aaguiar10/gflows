@@ -2,7 +2,7 @@
 FROM python:3.12-slim
 
 # Install dependencies
-RUN apt-get update && apt-get install -y nodejs npm git unzip
+RUN apt-get update && apt-get install -y nodejs npm git unzip rsync
 
 # Install Bazelisk
 RUN npm install -g @bazel/bazelisk
