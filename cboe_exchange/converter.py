@@ -41,8 +41,8 @@ def convert_szosho_to_cboe(szosho_data: dict) -> List[dict]:
     data = szosho_data
 
     risk_free_rate = data.pop("RiskFreeRate", 0.0)
-    stocks = {k: v for k, v in data.items() if ".SH" in k or ".SZ" in k}
-    options = {k: v for k, v in data.items() if "SHO" in k or "SZO" in k}
+    stocks = {k: v for k, v in data.items() if k.endswith(".SH") or k.endswith(".SZ")}
+    options = {k: v for k, v in data.items() if k.endswith(".SHO") or k.endswith(".SZO")}
     stock_map = {re.search(r'\d+', key).group(): key for key in stocks.keys()}
 
     cboe_data_map = {}
