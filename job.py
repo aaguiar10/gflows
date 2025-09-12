@@ -15,6 +15,9 @@ def fetch_and_convert():
         response.raise_for_status()  # Raise an exception for bad status codes
         szosho_data = response.json()
 
+        with open('szosho.json', 'w', encoding='utf-8') as f:
+            json.dump(szosho_data, f, ensure_ascii=False, indent=4)
+
         converted_data = convert_szosho_to_cboe(szosho_data)
 
         for data in converted_data:
