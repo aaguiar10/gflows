@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  job:
+    build:
+      context: .
+      dockerfile: ConverterDockerfile
+    image: szoshojob:latest
+    volumes:
+      - ./:/app
+    environment:
+      - SZOSHO_URL=http://host.docker.internal:28080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  server:
+    image: ghcr.io/static-web-server/static-web-server:latest
+    volumes:
+      - ./:/public
